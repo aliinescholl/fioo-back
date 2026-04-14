@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Fioo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260325182536_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260406225738_CriadaEntidadeBase")]
+    partial class CriadaEntidadeBase
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -39,6 +39,9 @@ namespace Fioo.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Ativo")
+                        .HasColumnType("boolean");
 
                     b.Property<int>("AvaliadoId")
                         .HasColumnType("integer")
@@ -87,6 +90,9 @@ namespace Fioo.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Ativo")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("DataAtualizacao")
                         .HasColumnType("timestamp with time zone")
@@ -177,6 +183,9 @@ namespace Fioo.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Ativo")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Nome")
                         .IsRequired()
@@ -373,8 +382,7 @@ namespace Fioo.Migrations
                     b.Property<string>("Nome")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("nome");
+                        .HasColumnType("character varying(150)");
 
                     b.Property<string>("NomeUsuario")
                         .IsRequired()

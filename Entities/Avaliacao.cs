@@ -1,8 +1,7 @@
 namespace Fioo.Entities;
 
-public class Avaliacao
+public class Avaliacao : EntidadeBase
 {
-    public int Id { get; set; }
     public int ServicoId { get; set; }
     public int AvaliadorId { get; set; }
     public int AvaliadoId { get; set; }
@@ -10,7 +9,7 @@ public class Avaliacao
     public string? Comentario { get; set; }
     public DateTime DataAvaliacao { get; set; }
 
-    public Servico Servico { get; set; } = null!;
-    public Usuario Avaliador { get; set; } = null!;
-    public Usuario Avaliado { get; set; } = null!;
+    public Servico? Servico { get; set; }
+    public Usuario? Avaliador { get; set; }
+    public Usuario? Avaliado { get; set; }
 }

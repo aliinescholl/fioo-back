@@ -26,7 +26,9 @@ namespace Fioo.Migrations
                 {
                     id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
-                    nome = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: false)
+                    nome = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: false),
+                    DataCadastro = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Ativo = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -201,7 +203,9 @@ namespace Fioo.Migrations
                     avaliado_id = table.Column<int>(type: "integer", nullable: false),
                     nota = table.Column<short>(type: "smallint", nullable: false),
                     comentario = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
-                    data_avaliacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    data_avaliacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    DataCadastro = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Ativo = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {

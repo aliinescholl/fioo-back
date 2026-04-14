@@ -17,8 +17,8 @@ public class Servico
     public ServicoStatus Status { get; set; }
     public DateTime DataCriacao { get; set; }
 
-    public Usuario Usuario { get; set; } = null!;
-    public ICollection<Candidatura> Candidaturas { get; set; } = [];
-    public ICollection<Avaliacao> Avaliacoes { get; set; } = [];
-    public ICollection<ServicoMaquinario> Maquinarios { get; set; } = [];
+    public Usuario? Usuario { get; set; } = null!;
+    public List<Candidatura>? Candidaturas { get; set; }
+    public List<Avaliacao>? Avaliacoes { get; set; }
+    public List<ServicoMaquinario>? Maquinarios { get; set; }
 }

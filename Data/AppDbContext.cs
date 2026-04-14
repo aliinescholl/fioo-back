@@ -51,7 +51,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(u => u.Id).HasColumnName("id").UseIdentityAlwaysColumn();
 
             e.Property(u => u.Nome)
-                .HasColumnName("nome")
                 .HasMaxLength(150)
                 .IsRequired();
 
