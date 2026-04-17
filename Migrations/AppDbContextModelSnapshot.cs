@@ -20,20 +20,13 @@ namespace Fioo.Migrations
                 .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "candidatura_status", new[] { "pendente", "aceita", "recusada", "cancelada" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "cobranca_tipo", new[] { "por_peca", "por_operacao" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "denuncia_status", new[] { "aberta", "em_analise", "resolvida", "arquivada" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "prazo_tipo", new[] { "semanal", "quinzenal", "mensal", "data_especifica" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "servico_status", new[] { "ativo", "em_andamento", "finalizado", "cancelado" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "usuario_tipo", new[] { "costureiro", "fornecedor" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Fioo.Entities.Avaliacao", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
@@ -41,31 +34,25 @@ namespace Fioo.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<int>("AvaliadoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("avaliado_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("AvaliadorId")
-                        .HasColumnType("integer")
-                        .HasColumnName("avaliador_id");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Comentario")
                         .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("comentario");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime>("DataAvaliacao")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_avaliacao")
                         .HasDefaultValueSql("now()");
 
                     b.Property<short>("Nota")
-                        .HasColumnType("smallint")
-                        .HasColumnName("nota");
+                        .HasColumnType("smallint");
 
                     b.Property<int>("ServicoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("servico_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -76,15 +63,14 @@ namespace Fioo.Migrations
                     b.HasIndex("ServicoId", "AvaliadorId", "AvaliadoId")
                         .IsUnique();
 
-                    b.ToTable("avaliacoes", (string)null);
+                    b.ToTable("Avaliacoes");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Candidatura", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
@@ -92,27 +78,21 @@ namespace Fioo.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<DateTime?>("DataAtualizacao")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_atualizacao");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("DataCandidatura")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_candidatura")
                         .HasDefaultValueSql("now()");
 
                     b.Property<int>("ServicoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("servico_id");
+                        .HasColumnType("integer");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("status");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<int>("UsuarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("usuario_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -121,47 +101,39 @@ namespace Fioo.Migrations
                     b.HasIndex("ServicoId", "UsuarioId")
                         .IsUnique();
 
-                    b.ToTable("candidaturas", (string)null);
+                    b.ToTable("Candidaturas");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Denuncia", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("DataDenuncia")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_denuncia")
                         .HasDefaultValueSql("now()");
 
                     b.Property<int>("DenunciadoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("denunciado_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("DenuncianteId")
-                        .HasColumnType("integer")
-                        .HasColumnName("denunciante_id");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Descricao")
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("descricao");
+                        .HasColumnType("character varying(2000)");
 
                     b.Property<string>("Motivo")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("motivo");
+                        .HasColumnType("character varying(150)");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("status");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -169,15 +141,14 @@ namespace Fioo.Migrations
 
                     b.HasIndex("DenuncianteId");
 
-                    b.ToTable("denuncias", (string)null);
+                    b.ToTable("Denuncias");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Maquinario", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
@@ -187,194 +158,165 @@ namespace Fioo.Migrations
                     b.Property<string>("Nome")
                         .IsRequired()
                         .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("nome");
+                        .HasColumnType("character varying(150)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("Nome")
                         .IsUnique();
 
-                    b.ToTable("maquinarios", (string)null);
+                    b.ToTable("Maquinarios");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Ativo")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("DataUpload")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_upload")
                         .HasDefaultValueSql("now()");
 
                     b.Property<string>("Descricao")
                         .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("descricao");
+                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("FotoUrl")
                         .IsRequired()
                         .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("foto_url");
+                        .HasColumnType("character varying(512)");
 
                     b.Property<int>("UsuarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("usuario_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
                     b.HasIndex("UsuarioId");
 
-                    b.ToTable("portfolios", (string)null);
+                    b.ToTable("Portfolios");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Servico", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
                     b.Property<string>("CategoriaServico")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("categoria_servico");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Cidade")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("cidade");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("DataCriacao")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_criacao")
                         .HasDefaultValueSql("now()");
 
                     b.Property<DateOnly?>("DataPrazo")
-                        .HasColumnType("date")
-                        .HasColumnName("data_prazo");
+                        .HasColumnType("date");
 
                     b.Property<string>("Descricao")
-                        .HasColumnType("text")
-                        .HasColumnName("descricao");
+                        .HasColumnType("text");
 
                     b.Property<string>("Estado")
                         .HasMaxLength(2)
-                        .HasColumnType("character varying(2)")
-                        .HasColumnName("estado");
+                        .HasColumnType("character varying(2)");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("status");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
-                    b.Property<string>("TipoCobranca")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tipo_cobranca");
+                    b.Property<int>("TipoCobranca")
+                        .HasColumnType("integer");
 
-                    b.Property<string>("TipoPrazo")
-                        .HasColumnType("text")
-                        .HasColumnName("tipo_prazo");
+                    b.Property<int?>("TipoPrazo")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Titulo")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("titulo");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int>("UsuarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("usuario_id");
+                        .HasColumnType("integer");
 
                     b.Property<decimal?>("Valor")
-                        .HasColumnType("numeric(12,2)")
-                        .HasColumnName("valor");
+                        .HasColumnType("numeric(12,2)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("UsuarioId");
 
-                    b.ToTable("servicos", (string)null);
+                    b.ToTable("Servicos");
                 });
 
             modelBuilder.Entity("Fioo.Entities.ServicoMaquinario", b =>
                 {
                     b.Property<int>("ServicoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("servico_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("MaquinarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("maquinario_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("ServicoId", "MaquinarioId");
 
                     b.HasIndex("MaquinarioId");
 
-                    b.ToTable("servico_maquinarios", (string)null);
+                    b.ToTable("ServicoMaquinarios");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Usuario", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
                     b.Property<int?>("AnosExperiencia")
-                        .HasColumnType("integer")
-                        .HasColumnName("anos_experiencia");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("Ativo")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("ativo");
+                        .HasDefaultValue(true);
 
                     b.Property<string>("Cidade")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("cidade");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("CpfCnpj")
                         .HasMaxLength(18)
-                        .HasColumnType("character varying(18)")
-                        .HasColumnName("cpf_cnpj");
+                        .HasColumnType("character varying(18)");
 
                     b.Property<DateTime>("DataCadastro")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_cadastro")
                         .HasDefaultValueSql("now()");
 
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(254)
-                        .HasColumnType("character varying(254)")
-                        .HasColumnName("email");
+                        .HasColumnType("character varying(254)");
 
                     b.Property<string>("Estado")
                         .HasMaxLength(2)
-                        .HasColumnType("character varying(2)")
-                        .HasColumnName("estado");
+                        .HasColumnType("character varying(2)");
 
                     b.Property<string>("FotoPerfilUrl")
                         .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("foto_perfil_url");
+                        .HasColumnType("character varying(512)");
 
                     b.Property<string>("Nome")
                         .IsRequired()
@@ -384,30 +326,24 @@ namespace Fioo.Migrations
                     b.Property<string>("NomeUsuario")
                         .IsRequired()
                         .HasMaxLength(60)
-                        .HasColumnType("character varying(60)")
-                        .HasColumnName("nome_usuario");
+                        .HasColumnType("character varying(60)");
 
                     b.Property<string>("SenhaHash")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("senha_hash");
+                        .HasColumnType("character varying(255)");
 
                     b.Property<string>("Telefone")
                         .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("telefone");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<bool>("TelefoneVisivel")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("telefone_visivel");
+                        .HasDefaultValue(false);
 
-                    b.Property<string>("Tipo")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tipo");
+                    b.Property<int>("Tipo")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -417,76 +353,66 @@ namespace Fioo.Migrations
                     b.HasIndex("NomeUsuario")
                         .IsUnique();
 
-                    b.ToTable("usuarios", (string)null);
+                    b.ToTable("Usuarios");
                 });
 
             modelBuilder.Entity("Fioo.Entities.UsuarioMaquinario", b =>
                 {
                     b.Property<int>("UsuarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("usuario_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("MaquinarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("maquinario_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("UsuarioId", "MaquinarioId");
 
                     b.HasIndex("MaquinarioId");
 
-                    b.ToTable("usuario_maquinarios", (string)null);
+                    b.ToTable("UsuarioMaquinarios");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Verificacao", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime?>("DataEnvioDocumento")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_envio_documento");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("DataVerificacaoCompleta")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("data_verificacao_completa");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("EtapaDocumento")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("etapa_documento");
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("EtapaEmail")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("etapa_email");
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("EtapaTempo")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("etapa_tempo");
+                        .HasDefaultValue(false);
 
                     b.Property<string>("FotoSelfieUrl")
                         .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("foto_selfie_url");
+                        .HasColumnType("character varying(512)");
 
                     b.Property<int>("UsuarioId")
-                        .HasColumnType("integer")
-                        .HasColumnName("usuario_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
                     b.HasIndex("UsuarioId")
                         .IsUnique();
 
-                    b.ToTable("verificacoes", (string)null);
+                    b.ToTable("Verificacoes");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Avaliacao", b =>

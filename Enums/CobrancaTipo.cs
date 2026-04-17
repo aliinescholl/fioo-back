@@ -1,7 +1,10 @@
+using System.ComponentModel;
 namespace Fioo.Enums;
 
 public enum CobrancaTipo
 {
-    PorPeca,
-    PorOperacao
+    [Description("PorPeca")]
+    PorPeca = 0,
+    [Description("PorOperacao")]
+    PorOperacao = 1
 }
