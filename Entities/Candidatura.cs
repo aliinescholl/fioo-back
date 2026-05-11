@@ -9,6 +9,6 @@ public class Candidatura : EntidadeBase
     public DateTime DataCandidatura { get; set; }
     public DateTime? DataAtualizacao { get; set; }
 
-    public Servico? Servico { get; set; } = null!;
-    public Usuario? Usuario { get; set; } = null!;
+    public Servico? Servico { get; set; }
+    public Usuario? Usuario { get; set; }
 }

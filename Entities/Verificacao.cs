@@ -11,5 +11,5 @@ public class Verificacao
     public DateTime? DataEnvioDocumento { get; set; }
     public DateTime? DataVerificacaoCompleta { get; set; }
 
-    public Usuario Usuario { get; set; } = null!;
+    public Usuario Usuario { get; set; }
 }
