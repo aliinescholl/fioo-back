@@ -1,4 +1,4 @@
-Ôªøusing Fioo.Data;
+using Fioo.Data;
 using Fioo.Entities;
 using Fioo.Enums;
 using Microsoft.AspNetCore.Mvc;
@@ -57,7 +57,7 @@ namespace Fioo.Controllers
                             && c.UsuarioId == candidatura.UsuarioId);
 
             if (jaExiste)
-                return BadRequest("Usu√°rio j√° se candidatou para este servi√ßo.");
+                return BadRequest("Usu·rio j· se candidatou para este serviÁo.");
 
             candidatura.DataCandidatura = DateTime.UtcNow;
 
