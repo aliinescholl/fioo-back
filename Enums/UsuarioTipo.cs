@@ -1,7 +1,10 @@
+using System.ComponentModel;
 namespace Fioo.Enums;
 
 public enum UsuarioTipo
 {
-    Costureiro,
-    Fornecedor
+    [Description("Costureiro")]
+    Costureiro = 0,
+    [Description("Fornecedor")]
+    Fornecedor = 1
 }

@@ -1,4 +1,5 @@
 ﻿using Fioo.Data;
+using Fioo.DTOs;
 using Fioo.Entities;
 using Fioo.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -23,25 +24,46 @@ namespace Fioo.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Servico>>> GetAll()
+        public async Task<ActionResult<IEnumerable<ServicoResumoDto>>> GetAll([FromQuery] int usuarioId)
         {
-            // Fornecedores e Costureiros podem visualizar
-            return await _context.Servicos
+            var servicos = await _context.Servicos
+                .Where(s => s.Status == ServicoStatus.Ativo && s.UsuarioId != usuarioId)
                 .Include(s => s.Usuario)
+                .Include(s => s.Maquinarios)!
+                    .ThenInclude(sm => sm.Maquinario)
+                .OrderByDescending(s => s.DataCriacao)
                 .ToListAsync();
+
+            return Ok(servicos.Select(ToResumoDto));
+        }
+
+        [HttpGet("meus/{usuarioId}")]
+        public async Task<ActionResult<IEnumerable<ServicoResumoDto>>> GetMeus(int usuarioId)
+        {
+            var servicos = await _context.Servicos
+                .Where(s => s.UsuarioId == usuarioId)
+                .Include(s => s.Usuario)
+                .Include(s => s.Maquinarios)!
+                    .ThenInclude(sm => sm.Maquinario)
+                .OrderByDescending(s => s.DataCriacao)
+                .ToListAsync();
+
+            return Ok(servicos.Select(ToResumoDto));
         }
 
         [HttpGet("{id}")]
-        public async Task<ActionResult<Servico>> GetById(int id)
+        public async Task<ActionResult<ServicoResumoDto>> GetById(int id)
         {
             var servico = await _context.Servicos
                 .Include(s => s.Usuario)
+                .Include(s => s.Maquinarios)!
+                    .ThenInclude(sm => sm.Maquinario)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servico == null)
                 return NotFound();
 
-            return servico;
+            return Ok(ToResumoDto(servico));
         }
 
         [HttpGet("usuario/{usuarioId}")]
@@ -144,6 +166,38 @@ namespace Fioo.Controllers
 
             return NoContent();
         }
+
+        private static ServicoResumoDto ToResumoDto(Servico s) => new()
+        {
+            Id = s.Id,
+            Titulo = s.Titulo,
+            Descricao = s.Descricao,
+            Cidade = s.Cidade,
+            Estado = s.Estado,
+            CategoriaServico = s.CategoriaServico,
+            Valor = s.Valor,
+            TipoCobranca = s.TipoCobranca,
+            TipoPrazo = s.TipoPrazo,
+            DataPrazo = s.DataPrazo,
+            Status = s.Status,
+            DataCriacao = s.DataCriacao,
+            Usuario = new UsuarioResumoDto
+            {
+                Id = s.Usuario!.Id,
+                Nome = s.Usuario.Nome,
+                NomeUsuario = s.Usuario.NomeUsuario,
+                FotoPerfilUrl = s.Usuario.FotoPerfilUrl,
+                Cidade = s.Usuario.Cidade,
+                Estado = s.Usuario.Estado
+            },
+            Maquinarios = s.Maquinarios?
+                .Where(sm => sm.Maquinario != null)
+                .Select(sm => new MaquinarioResumoDto
+                {
+                    Id = sm.Maquinario!.Id,
+                    Nome = sm.Maquinario.Nome
+                }).ToList() ?? []
+        };
 
         private int? GetUsuarioIdFromClaims()
         {
