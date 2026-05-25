@@ -24,7 +24,7 @@ public class ServicoConfiguration : IEntityTypeConfiguration<Servico>
             .HasMaxLength(2);
 
         e.Property(s => s.TipoCobranca)
-            .HasConversion<int>();
+            .HasConversion<string>();
 
         e.Property(s => s.CategoriaServico)
             .HasMaxLength(100);
@@ -33,10 +33,10 @@ public class ServicoConfiguration : IEntityTypeConfiguration<Servico>
             .HasColumnType("numeric(12,2)");
 
         e.Property(s => s.TipoPrazo)
-            .HasConversion<int>();
+            .HasConversion<string>();
 
         e.Property(s => s.Status)
-            .HasConversion<int>();
+            .HasConversion<string>();
 
         e.Property(s => s.DataCriacao)
             .HasDefaultValueSql("now()");

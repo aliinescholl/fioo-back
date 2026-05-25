@@ -47,7 +47,7 @@ public class UsuarioConfiguration : IEntityTypeConfiguration<Usuario>
             .HasMaxLength(100);
 
         e.Property(u => u.Tipo)
-            .HasConversion<int>();
+            .HasConversion<string>();
 
         e.Property(u => u.FotoPerfilUrl)
             .HasMaxLength(512);

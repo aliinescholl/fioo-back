@@ -17,7 +17,7 @@ public class CandidaturaConfiguration : IEntityTypeConfiguration<Candidatura>
         e.HasIndex(c => new { c.ServicoId, c.UsuarioId }).IsUnique();
 
         e.Property(c => c.Status)
-            .HasConversion<int>();
+            .HasConversion<string>();
 
         e.Property(c => c.DataCandidatura)
             .HasDefaultValueSql("now()");

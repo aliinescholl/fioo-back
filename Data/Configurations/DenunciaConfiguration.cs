@@ -22,7 +22,7 @@ public class DenunciaConfiguration : IEntityTypeConfiguration<Denuncia>
             .HasMaxLength(2000);
 
         e.Property(d => d.Status)
-            .HasConversion<int>();
+            .HasConversion<string>();
 
         e.Property(d => d.DataDenuncia)
             .HasDefaultValueSql("now()");

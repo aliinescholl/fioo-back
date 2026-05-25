@@ -60,7 +60,7 @@ public class UsuariosController : ControllerBase
 
         var username = baseUsername;
         var suffix = 1;
-        while (await _dbContext.Usuarios.AnyAsync(u => u.NomeUsuario == username))
+        while (await _dbContext.Usuarios.AnyAsync(u => u.NomeUsuario != null && u.NomeUsuario == username))
         {
             username = $"{baseUsername}{suffix}";
             suffix++;
