@@ -1,4 +1,5 @@
-using Fioo.Data;
+﻿using Fioo.Data;
+using Fioo.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -20,6 +21,9 @@ builder.Services.AddControllers();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Serviço de consulta CNPJ via API pública cnpj.ws
+builder.Services.AddHttpClient<CnpjWsService>();
 
 // JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -54,7 +58,7 @@ if (app.Environment.IsDevelopment())
 
 //app.UseHttpsRedirection();
 
-// Servir arquivos est�ticos (imagens de perfil/portf�lio)
+// Servir arquivos estáticos (imagens de perfil/portfólio)
 app.UseStaticFiles();
 
 if (!string.IsNullOrEmpty(jwtKey))

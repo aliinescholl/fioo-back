@@ -34,6 +34,15 @@ public class UsuarioConfiguration : IEntityTypeConfiguration<Usuario>
         e.Property(u => u.CpfCnpj)
             .HasMaxLength(18);
 
+        e.Property(u => u.RazaoSocial)
+            .HasMaxLength(250);
+
+        e.Property(u => u.NomeFantasia)
+            .HasMaxLength(250);
+
+        e.Property(u => u.EmailContato)
+            .HasMaxLength(254);
+
         e.Property(u => u.Telefone)
             .HasMaxLength(20);
 

@@ -9,6 +9,9 @@ public class Usuario : EntidadeBase
     public string Email { get; set; }
     public string SenhaHash { get; set; }
     public string? CpfCnpj { get; set; }
+    public string? RazaoSocial { get; set; }
+    public string? NomeFantasia { get; set; }
+    public string? EmailContato { get; set; }
     public string? Telefone { get; set; }
     public bool TelefoneVisivel { get; set; }
     public string? Cidade { get; set; }

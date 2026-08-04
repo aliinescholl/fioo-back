@@ -1,5 +1,6 @@
-﻿using Fioo.Data;
+using Fioo.Data;
 using Fioo.Entities;
+using Fioo.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
@@ -22,25 +23,26 @@ public class UsuariosController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly IConfiguration _appConfiguration;
     private readonly IWebHostEnvironment _webHostEnvironment;
+    private readonly CnpjWsService _cnpjWsService;
 
     // Upload rules
     private readonly string[] _usuarioPermittedExtensions = { ".jpg", ".jpeg", ".png" };
     private const long MaxFileSize = 2 * 1024 * 1024; // 2 MB
 
-    public UsuariosController(AppDbContext context, IConfiguration configuration, IWebHostEnvironment env)
+    public UsuariosController(AppDbContext context, IConfiguration configuration, IWebHostEnvironment env, CnpjWsService cnpjWsService)
     {
         _dbContext = context;
         _appConfiguration = configuration;
         _webHostEnvironment = env;
+        _cnpjWsService = cnpjWsService;
     }
 
     [HttpPost]
     public async Task<IActionResult> Cadastrar([FromBody] CriarUsuarioDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Nome) ||
-            string.IsNullOrWhiteSpace(dto.Email) ||
+        if (string.IsNullOrWhiteSpace(dto.Email) ||
             string.IsNullOrWhiteSpace(dto.Senha))
-            return BadRequest("Nome, email e senha são obrigatórios.");
+            return BadRequest("Email e senha são obrigatórios.");
 
         // Validação de email
         if (!ValidationHelpers.ValidarEmail(dto.Email))
@@ -53,8 +55,86 @@ public class UsuariosController : ControllerBase
         if (await _dbContext.Usuarios.AnyAsync(u => u.Email == dto.Email))
             return BadRequest("Email já cadastrado");
 
-        // Gerar NomeUsuario a partir do nome (garantir unicidade simples)
-        var baseUsername = Regex.Replace(dto.Nome.ToLower(), @"\s+", "");
+        var usuario = new Usuario
+        {
+            Email = dto.Email,
+            SenhaHash = GerarHash(dto.Senha),
+            Ativo = true
+        };
+
+        // ── Fluxo de Fornecedor (EhCostureiro = false) ────────────────────────
+        if (!dto.EhCostureiro)
+        {
+            if (string.IsNullOrWhiteSpace(dto.CNPJ))
+                return BadRequest("CNPJ é obrigatório para fornecedores.");
+
+            // Remove máscara: pontos, barras e hífens
+            var cnpjLimpo = Regex.Replace(dto.CNPJ, @"[^\d]", "");
+
+            if (cnpjLimpo.Length != 14)
+                return BadRequest("CNPJ inválido. Informe os 14 dígitos.");
+
+            CnpjWsResponse? dadosCnpj;
+            try
+            {
+                dadosCnpj = await _cnpjWsService.ConsultarAsync(cnpjLimpo);
+            }
+            catch (CnpjWsException ex) when (ex.Erro == CnpjWsErro.NaoEncontrado)
+            {
+                return BadRequest("CNPJ não encontrado na base de dados.");
+            }
+            catch (CnpjWsException ex) when (ex.Erro == CnpjWsErro.RateLimitAtingido)
+            {
+                return StatusCode(429, "Limite de consultas ao serviço de CNPJ atingido. Tente novamente em 1 minuto.");
+            }
+            catch (CnpjWsException ex)
+            {
+                return BadRequest($"Erro ao consultar CNPJ: {ex.Message}");
+            }
+            catch (Exception)
+            {
+                return StatusCode(503, "Serviço de consulta de CNPJ indisponível no momento.");
+            }
+
+            if (dadosCnpj == null)
+                return BadRequest("Não foi possível obter dados do CNPJ.");
+
+            // Valida situação cadastral
+            var situacao = dadosCnpj.Estabelecimento?.SituacaoCadastral ?? "";
+            if (!situacao.Equals("Ativa", StringComparison.OrdinalIgnoreCase))
+                return BadRequest($"CNPJ com situação cadastral '{situacao}'. Apenas CNPJs com situação 'Ativa' são aceitos.");
+
+            // Preenche dados do fornecedor a partir da API
+            usuario.Tipo        = UsuarioTipo.Fornecedor;
+            usuario.CpfCnpj     = cnpjLimpo;
+            usuario.RazaoSocial = dadosCnpj.RazaoSocial;
+            usuario.NomeFantasia = dadosCnpj.Estabelecimento?.NomeFantasia;
+            usuario.EmailContato = dadosCnpj.Estabelecimento?.Email;
+            usuario.Cidade      = dadosCnpj.Estabelecimento?.Cidade?.Nome;
+            usuario.Estado      = dadosCnpj.Estabelecimento?.Estado?.Sigla;
+
+            // Monta telefone com DDD se disponível
+            var ddd = dadosCnpj.Estabelecimento?.Ddd1;
+            var tel = dadosCnpj.Estabelecimento?.Telefone1;
+            if (!string.IsNullOrWhiteSpace(tel))
+                usuario.Telefone = string.IsNullOrWhiteSpace(ddd) ? tel : $"({ddd}) {tel}";
+
+            // Nome: usa razão social como nome principal
+            var nomeBase = dadosCnpj.RazaoSocial ?? dto.CNPJ;
+            usuario.Nome = nomeBase;
+        }
+        // ── Fluxo de Costureiro (EhCostureiro = true) ─────────────────────────
+        else
+        {
+            if (string.IsNullOrWhiteSpace(dto.Nome))
+                return BadRequest("Nome é obrigatório para costureiros.");
+
+            usuario.Tipo = UsuarioTipo.Costureiro;
+            usuario.Nome = dto.Nome;
+        }
+
+        // Gera NomeUsuario único a partir do nome
+        var baseUsername = Regex.Replace((usuario.Nome ?? dto.Email).ToLower(), @"[^a-z0-9]", "");
         if (string.IsNullOrWhiteSpace(baseUsername))
             baseUsername = dto.Email.Split('@')[0];
 
@@ -65,15 +145,7 @@ public class UsuariosController : ControllerBase
             username = $"{baseUsername}{suffix}";
             suffix++;
         }
-
-        var usuario = new Usuario
-        {
-            Nome = dto.Nome,
-            NomeUsuario = username,
-            Email = dto.Email,
-            SenhaHash = GerarHash(dto.Senha),
-            Ativo = true
-        };
+        usuario.NomeUsuario = username;
 
         _dbContext.Usuarios.Add(usuario);
         await _dbContext.SaveChangesAsync();
