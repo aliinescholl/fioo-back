@@ -413,18 +413,6 @@ public class UsuariosController : ControllerBase
         return null;
     }
 
-    private UsuarioTipo? GetUsuarioTipoFromClaims()
-    {
-        var tipoStr = User.FindFirst("tipo")?.Value;
-        if (string.IsNullOrEmpty(tipoStr))
-            return null;
-
-        if (Enum.TryParse<UsuarioTipo>(tipoStr, out var tipo))
-            return tipo;
-
-        return null;
-    }
-
     // Método de hash já existente
     private static string GerarHash(string senha)
     {

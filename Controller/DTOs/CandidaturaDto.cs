@@ -33,8 +33,8 @@ public class ServicoResumoDto
     public ServicoStatus Status { get; set; }
     public DateTime DataCriacao { get; set; }
 
-    public UsuarioResumoDto Usuario { get; set; } 
-    public List<MaquinarioResumoDto> Maquinarios { get; set; } = [];
+    public UsuarioResumoDto? Usuario { get; set; } 
+    public List<MaquinarioResumoDto>? Maquinarios { get; set; } = [];
 }
 
 public class CandidaturaDto

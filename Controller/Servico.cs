@@ -95,6 +95,13 @@ namespace Fioo.Controllers
                 return BadRequest(new { field = "valor", message = "Valor não pode ser negativo." });
 
             // Mapear DTO para entidade, populando UsuarioId a partir do token
+            // Validar e parsear DataPrazo de forma segura
+            if (string.IsNullOrWhiteSpace(dto.DataPrazo))
+                return BadRequest(new { field = "dataPrazo", message = "DataPrazo é obrigatória." });
+
+            if (!DateOnly.TryParse(dto.DataPrazo, out var dataPrazo))
+                return BadRequest(new { field = "dataPrazo", message = "Formato de data inválido." });
+
             var servico = new Servico
             {
                 UsuarioId = userId.Value,
@@ -106,7 +113,7 @@ namespace Fioo.Controllers
                 CategoriaServico = dto.CategoriaServico,
                 Valor = dto.Valor,
                 TipoPrazo = dto.TipoPrazo,
-                DataPrazo = DateOnly.Parse(dto.DataPrazo),
+                DataPrazo = dataPrazo,
                 Status = dto.Status,
                 DataCriacao = DateTime.UtcNow
             };
