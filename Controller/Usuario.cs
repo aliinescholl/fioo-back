@@ -1,18 +1,19 @@
+using Fioo.Controller.DTOs;
 using Fioo.Data;
 using Fioo.Entities;
+using Fioo.Enums;
 using Fioo.Services;
+using Fioo.Utils;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.IO;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
-using Fioo.Enums;
-using System.IO;
-using Fioo.Utils;
 
 namespace Fioo.Controllers;
 
@@ -188,11 +189,20 @@ public class UsuariosController : ControllerBase
         return Ok(exists);
     }
 
-    [HttpGet]
-    public async Task<IActionResult> Listar()
+    [HttpGet("costureiros")]
+    public async Task<IActionResult> ListarCostureiros()
     {
-        var usuarios = await _dbContext.Usuarios.ToListAsync();
-        return Ok(usuarios);
+        var usuarios = await _dbContext.Usuarios.Where(u => u.Tipo == UsuarioTipo.Costureiro).ToListAsync();
+        List<ResumoListarUsuarioDto> resumo = ConverterUsuarioParaResumo(usuarios);
+        return Ok(resumo);
+    }
+
+    [HttpGet("fornecedores")]
+    public async Task<IActionResult> ListarFornecedores()
+    {
+        var usuarios = await _dbContext.Usuarios.Where(u => u.Tipo == UsuarioTipo.Fornecedor).ToListAsync();
+        List<ResumoListarUsuarioDto> resumo = ConverterUsuarioParaResumo(usuarios);
+        return Ok(resumo);
     }
 
     [HttpGet("{id}")]
@@ -451,5 +461,17 @@ public class UsuariosController : ControllerBase
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static List<ResumoListarUsuarioDto> ConverterUsuarioParaResumo(List<Usuario> usuarios)
+    {
+        return usuarios.Select(
+            u => new ResumoListarUsuarioDto
+            {
+                Foto = u.FotoPerfilUrl,
+                Nome = u.Nome,
+                Localizacao = u.Cidade + " - " + u.Estado,
+                MediaEstrela = u.MediaAvaliacoes.ToString()
+            }).ToList();
     }
 }
