@@ -449,6 +449,10 @@ namespace Fioo.Controllers
             if (userId == null || servico.UsuarioId != userId.Value)
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor proprietário pode deletar este serviço." });
 
+            // As avaliações ficam no histórico dos usuários; serviço avaliado não pode ser excluído
+            if (await _context.Avaliacoes.AnyAsync(a => a.ServicoId == id))
+                return Conflict(new { message = "Não é possível excluir um serviço que já foi avaliado." });
+
             _context.Servicos.Remove(servico);
             await _context.SaveChangesAsync();
 
