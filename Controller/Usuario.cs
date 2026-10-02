@@ -189,20 +189,104 @@ public class UsuariosController : ControllerBase
         return Ok(exists);
     }
 
+    private static readonly string[] OrdenacoesUsuarios = ["relevantes", "avaliacao-alta", "avaliacao-baixa", "az", "za"];
+
     [HttpGet("costureiros")]
-    public async Task<IActionResult> ListarCostureiros()
-    {
-        var usuarios = await _dbContext.Usuarios.Where(u => u.Tipo == UsuarioTipo.Costureiro).ToListAsync();
-        List<ResumoListarUsuarioDto> resumo = ConverterUsuarioParaResumo(usuarios);
-        return Ok(resumo);
-    }
+    [Authorize]
+    public Task<ActionResult<PaginaUsuariosDto>> ListarCostureiros([FromQuery] UsuarioFiltroDto filtro) =>
+        ListarPorTipo(UsuarioTipo.Costureiro, filtro);
 
     [HttpGet("fornecedores")]
-    public async Task<IActionResult> ListarFornecedores()
+    [Authorize]
+    public Task<ActionResult<PaginaUsuariosDto>> ListarFornecedores([FromQuery] UsuarioFiltroDto filtro) =>
+        ListarPorTipo(UsuarioTipo.Fornecedor, filtro);
+
+    /// <summary>
+    /// Tela Encontrar: usuários de um tipo com média/total das avaliações recebidas nesse papel,
+    /// filtros, ordenação e paginação numa única consulta. Busca e ordem alfabética ignoram
+    /// maiúsculas e acentos (normalizar_texto). Quem não tem avaliação fica sempre depois dos
+    /// avaliados nas ordenações por nota e só é excluído quando há filtro de avaliação mínima.
+    /// </summary>
+    private async Task<ActionResult<PaginaUsuariosDto>> ListarPorTipo(UsuarioTipo tipo, UsuarioFiltroDto filtro)
     {
-        var usuarios = await _dbContext.Usuarios.Where(u => u.Tipo == UsuarioTipo.Fornecedor).ToListAsync();
-        List<ResumoListarUsuarioDto> resumo = ConverterUsuarioParaResumo(usuarios);
-        return Ok(resumo);
+        if (filtro.AvaliacaoMin is < 1 or > 5)
+            return BadRequest(new { field = "avaliacaoMin", message = "A avaliação mínima deve ser de 1 a 5 estrelas." });
+        if (filtro.Uf != null && filtro.Uf.Trim().Length is not (0 or 2))
+            return BadRequest(new { field = "uf", message = "UF inválida." });
+        if (filtro.Ordenacao != null && !OrdenacoesUsuarios.Contains(filtro.Ordenacao))
+            return BadRequest(new { field = "ordenacao", message = "Ordenação inválida." });
+        if (filtro.Pagina < 1)
+            return BadRequest(new { field = "pagina", message = "Página inválida." });
+        if (filtro.TamanhoPagina is < 1 or > 50)
+            return BadRequest(new { field = "tamanhoPagina", message = "O tamanho da página deve ser entre 1 e 50." });
+
+        var usuarios = _dbContext.Usuarios.AsNoTracking().Where(u => u.Tipo == tipo);
+
+        if (!string.IsNullOrWhiteSpace(filtro.Busca))
+            usuarios = usuarios.Where(u =>
+                AppDbContext.NormalizarTexto(u.Nome).Contains(AppDbContext.NormalizarTexto(filtro.Busca))
+                || (u.NomeFantasia != null && AppDbContext.NormalizarTexto(u.NomeFantasia).Contains(AppDbContext.NormalizarTexto(filtro.Busca)))
+                || AppDbContext.NormalizarTexto(u.NomeUsuario).Contains(AppDbContext.NormalizarTexto(filtro.Busca)));
+
+        if (!string.IsNullOrWhiteSpace(filtro.Uf))
+        {
+            var uf = filtro.Uf.Trim().ToUpperInvariant();
+            usuarios = usuarios.Where(u => u.Estado == uf);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filtro.Cidade))
+            usuarios = usuarios.Where(u => u.Cidade != null
+                && AppDbContext.NormalizarTexto(u.Cidade).Contains(AppDbContext.NormalizarTexto(filtro.Cidade)));
+
+        // Média e total só das avaliações recebidas no papel listado
+        var comNotas = usuarios.Select(u => new
+        {
+            Usuario = u,
+            NomeOrdenacao = AppDbContext.NormalizarTexto(u.Nome),
+            Media = u.AvaliacoesRecebidas!.Where(a => a.PapelAvaliado == tipo).Average(a => (double?)a.Nota),
+            Total = u.AvaliacoesRecebidas!.Count(a => a.PapelAvaliado == tipo)
+        });
+
+        if (filtro.AvaliacaoMin.HasValue)
+            comNotas = comNotas.Where(x => x.Media >= filtro.AvaliacaoMin.Value);
+
+        // Desempate final por Id para a paginação ser estável
+        comNotas = (filtro.Ordenacao ?? "relevantes") switch
+        {
+            "avaliacao-baixa" => comNotas.OrderBy(x => x.Media == null).ThenBy(x => x.Media).ThenByDescending(x => x.Total).ThenBy(x => x.Usuario.Id),
+            "az" => comNotas.OrderBy(x => x.NomeOrdenacao).ThenBy(x => x.Usuario.Id),
+            "za" => comNotas.OrderByDescending(x => x.NomeOrdenacao).ThenByDescending(x => x.Usuario.Id),
+            // "Mais relevantes" e "Avaliação mais alta": maior média, depois mais avaliações; sem avaliação por último
+            _ => comNotas.OrderBy(x => x.Media == null).ThenByDescending(x => x.Media).ThenByDescending(x => x.Total)
+                .ThenBy(x => x.NomeOrdenacao).ThenBy(x => x.Usuario.Id)
+        };
+
+        var itens = await comNotas
+            .Skip((filtro.Pagina - 1) * filtro.TamanhoPagina)
+            .Take(filtro.TamanhoPagina + 1)
+            .Select(x => new ResumoListarUsuarioDto
+            {
+                Id = x.Usuario.Id,
+                Nome = x.Usuario.Nome,
+                NomeUsuario = x.Usuario.NomeUsuario,
+                Foto = x.Usuario.FotoPerfilUrl,
+                Localizacao = x.Usuario.Cidade != null && x.Usuario.Estado != null
+                    ? x.Usuario.Cidade + " - " + x.Usuario.Estado
+                    : x.Usuario.Cidade ?? x.Usuario.Estado,
+                Media = x.Media,
+                TotalAvaliacoes = x.Total
+            })
+            .ToListAsync();
+
+        foreach (var item in itens.Where(i => i.Media.HasValue))
+            item.Media = Math.Round(item.Media!.Value, 1);
+
+        return Ok(new PaginaUsuariosDto
+        {
+            Itens = itens.Take(filtro.TamanhoPagina).ToList(),
+            Pagina = filtro.Pagina,
+            TemMais = itens.Count > filtro.TamanhoPagina
+        });
     }
 
     [HttpGet("{id}")]
@@ -487,17 +571,5 @@ public class UsuariosController : ControllerBase
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-
-    private static List<ResumoListarUsuarioDto> ConverterUsuarioParaResumo(List<Usuario> usuarios)
-    {
-        return usuarios.Select(
-            u => new ResumoListarUsuarioDto
-            {
-                Foto = u.FotoPerfilUrl,
-                Nome = u.Nome,
-                Localizacao = u.Cidade + " - " + u.Estado,
-                MediaEstrela = u.MediaAvaliacoes.ToString()
-            }).ToList();
     }
 }
