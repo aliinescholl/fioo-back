@@ -129,6 +129,22 @@ namespace Fioo.Controllers
             return CreatedAtAction(nameof(GetByServico), new { servicoId = dto.ServicoId }, criada);
         }
 
+        /// <summary>Ids dos serviços que o usuário autenticado já avaliou.</summary>
+        [HttpGet("feitas")]
+        public async Task<ActionResult<IEnumerable<int>>> GetFeitas()
+        {
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var servicoIds = await _context.Avaliacoes
+                .Where(a => a.AvaliadorId == userId.Value)
+                .Select(a => a.ServicoId)
+                .ToListAsync();
+
+            return Ok(servicoIds);
+        }
+
         /// <summary>Avaliações de um serviço (até duas: uma de cada participante).</summary>
         [HttpGet("servico/{servicoId}")]
         public async Task<ActionResult<IEnumerable<AvaliacaoDto>>> GetByServico(int servicoId)

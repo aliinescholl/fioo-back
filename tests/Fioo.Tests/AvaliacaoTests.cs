@@ -264,3 +264,42 @@ public class AvaliacaoTests(FiooApiFactory api)
         await Assert.ThrowsAsync<DbUpdateException>(() => InserirDireto(c, a => a.Comentario = new string('x', 301)));
     }
 }
+
+[Collection(ApiCollection.Nome)]
+public class AvaliacoesFeitasEPerfilTests(FiooApiFactory api)
+{
+    [Fact]
+    public async Task Feitas_lista_somente_os_servicos_avaliados_pelo_usuario()
+    {
+        var fornecedor = await api.CriarUsuario(UsuarioTipo.Fornecedor);
+        var costureiro = await api.CriarUsuario(UsuarioTipo.Costureiro);
+        var avaliado = await api.CriarServico(fornecedor, ServicoStatus.Concluido);
+        var naoAvaliado = await api.CriarServico(fornecedor, ServicoStatus.Concluido);
+        await api.CriarCandidatura(avaliado, costureiro, CandidaturaStatus.Aceita);
+        await api.CriarCandidatura(naoAvaliado, costureiro, CandidaturaStatus.Aceita);
+        var cliente = api.ClienteDe(costureiro);
+        await cliente.PostAsJsonAsync("/api/avaliacoes", new { servicoId = avaliado.Id, nota = 5, notaComunicacao = 5, notaQualidade = 5 });
+
+        var feitas = await cliente.GetFromJsonAsync<List<int>>("/api/avaliacoes/feitas");
+        var doFornecedor = await api.ClienteDe(fornecedor).GetFromJsonAsync<List<int>>("/api/avaliacoes/feitas");
+
+        Assert.Equal([avaliado.Id], feitas);
+        Assert.Empty(doFornecedor!);
+    }
+
+    [Fact]
+    public async Task Perfil_publico_nao_expoe_dados_privados()
+    {
+        var usuario = await api.CriarUsuario(UsuarioTipo.Costureiro);
+        var outro = await api.CriarUsuario(UsuarioTipo.Fornecedor);
+
+        var resposta = await api.ClienteDe(outro).GetAsync($"/api/usuarios/{usuario.Id}/publico");
+        var json = await resposta.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, resposta.StatusCode);
+        Assert.Contains(usuario.NomeUsuario, json);
+        Assert.DoesNotContain("senha", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.NotFound, (await api.ClienteDe(outro).GetAsync("/api/usuarios/999999/publico")).StatusCode);
+    }
+}

@@ -216,6 +216,32 @@ public class UsuariosController : ControllerBase
         return Ok(usuario);
     }
 
+    [HttpGet("{id}/publico")]
+    [Authorize]
+    public async Task<ActionResult<PerfilPublicoDto>> ObterPerfilPublico(int id)
+    {
+        var perfil = await _dbContext.Usuarios
+            .AsNoTracking()
+            .Where(u => u.Id == id)
+            .Select(u => new PerfilPublicoDto
+            {
+                Id = u.Id,
+                Nome = u.Nome,
+                NomeUsuario = u.NomeUsuario,
+                FotoPerfilUrl = u.FotoPerfilUrl,
+                Cidade = u.Cidade,
+                Estado = u.Estado,
+                Tipo = u.Tipo,
+                AnosExperiencia = u.AnosExperiencia
+            })
+            .FirstOrDefaultAsync();
+
+        if (perfil == null)
+            return NotFound(new { message = "Usuário não encontrado." });
+
+        return Ok(perfil);
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Deletar(int id)
     {
