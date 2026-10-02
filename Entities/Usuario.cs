@@ -7,6 +7,7 @@ public class Usuario : EntidadeBase
     public string Nome { get; set; }
     public string NomeUsuario { get; set; }
     public string Email { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore] // nunca sai em respostas da API
     public string SenhaHash { get; set; }
     public string? CpfCnpj { get; set; }
     public string? RazaoSocial { get; set; }
@@ -19,8 +20,6 @@ public class Usuario : EntidadeBase
     public UsuarioTipo Tipo { get; set; }
     public string? FotoPerfilUrl { get; set; }
     public int? AnosExperiencia { get; set; }
-    public int QuantidadeAvaliacoesRecebidas { get => AvaliacoesRecebidas is null ? 0 : AvaliacoesRecebidas.Count(); }
-    public float MediaAvaliacoes { get => AvaliacoesRecebidas is null || QuantidadeAvaliacoesRecebidas == 0 ? 0 : AvaliacoesRecebidas.Sum(a => a.Nota) / QuantidadeAvaliacoesRecebidas; }
 
     public Verificacao? Verificacao { get; set; }
     public List<Servico>? Servicos { get; set; }

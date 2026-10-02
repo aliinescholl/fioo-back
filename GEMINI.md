@@ -37,32 +37,46 @@ A autorização é aplicada via atributo `[Authorize]` em controllers ou método
 ## 4. Rotas da API
 
 ### Usuários (`/api/usuarios`)
-- `POST /`: Cadastra um novo usuário.
-- `POST /login`: Autentica um usuário e retorna um token JWT.
+- `POST /`: Cadastra um novo usuário (senha com PBKDF2 + salt).
+- `POST /login`: Autentica e retorna um token JWT. Hashes antigos (SHA-256) são migrados para PBKDF2 no login.
 - `POST /verificar-email`: Verifica se um email já está em uso.
-- `GET /`: Lista todos os usuários.
-- `GET /{id}`: Obtém detalhes de um usuário específico.
-- `DELETE /{id}`: Remove um usuário.
-- `GET /me`: Obtém os dados do usuário autenticado (Requer `[Authorize]`).
-- `PUT /me`: Atualiza o perfil do usuário autenticado, incluindo upload de foto e portfólio (Requer `[Authorize]`).
+- `GET /costureiros` e `GET /fornecedores` (Requer `[Authorize]`): tela Encontrar. Query: `busca`, `uf`, `cidade`, `avaliacaoMin` (1–5), `ordenacao` (`relevantes`, `avaliacao-alta`, `avaliacao-baixa`, `az`, `za`), `pagina`, `tamanhoPagina`. Retorna `{ itens, pagina, temMais }` com média e total de avaliações no papel.
+- `GET /{id}` (Requer `[Authorize]`): dados completos só do próprio usuário; para os demais, os dados públicos.
+- `GET /{id}/publico` (Requer `[Authorize]`): perfil público (sem e-mail, documento ou telefone).
+- `DELETE /{id}` (Requer `[Authorize]`): exclui a própria conta; 409 se houver histórico (candidaturas, avaliações, denúncias).
+- `GET /me` / `PUT /me` (Requer `[Authorize]`): dados e atualização do usuário autenticado.
+
+O campo `SenhaHash` nunca é serializado nas respostas.
 
 ### Serviços (`/api/servicos`) - Requer `[Authorize]`
-- `GET /`: Lista todos os serviços ativos (excluindo os do próprio usuário).
+- `GET /`: Lista serviços de outros fornecedores. Query: `busca`, `uf`, `cidade`, `valorMin`, `valorMax`, `cobranca`, `prazo`, `categoria`, `status`, `ordenacao` (`relevantes`, `prazo-proximo`, `prazo-distante`, `maior-valor`, `menor-valor`), `pagina`, `tamanhoPagina`. Retorna `{ itens, pagina, temMais }`.
+- `GET /categorias`: Categorias já cadastradas, sem repetir variações de maiúsculas/acentos.
 - `GET /meus/{usuarioId}`: Lista os serviços criados pelo usuário especificado.
-- `GET /{id}`: Obtém detalhes de um serviço.
-- `GET /usuario/{usuarioId}`: Lista serviços de um usuário.
-- `POST /`: Cria um novo serviço (Apenas para `UsuarioTipo.Fornecedor`).
-- `PUT /{id}`: Atualiza um serviço existente (Apenas o proprietário).
-- `DELETE /{id}`: Remove um serviço (Apenas o proprietário).
+- `GET /{id}`: Obtém detalhes de um serviço (inclui `costureiroVinculado`).
+- `POST /`: Cria um serviço (apenas `Fornecedor`). Nasce "Em andamento". Data do prazo só em "Data Específica".
+- `PUT /{id}`: Atualiza um serviço (apenas o proprietário; não altera o status).
+- `PATCH /{id}/status`: Em andamento → Concluído (exige costureiro vinculado) ou Cancelado (apenas o proprietário).
+- `GET /{id}/candidaturas`: Candidatos do serviço (apenas o proprietário).
+- `POST /{id}/candidaturas/{candidaturaId}/aceitar`: Aceita um candidato e recusa os demais pendentes.
+- `DELETE /{id}`: Remove um serviço (apenas o proprietário; 409 se já avaliado).
 
-### Candidaturas (`/api/candidaturas`)
+### Candidaturas (`/api/candidaturas`) - Requer `[Authorize]`
 - `GET /`: Lista todas as candidaturas.
 - `GET /{id}`: Obtém detalhes de uma candidatura.
 - `GET /servico/{servicoId}`: Lista candidaturas para um serviço específico.
-- `GET /em-andamento/{usuarioId}`: Lista candidaturas em andamento para um usuário.
-- `POST /`: Cria uma nova candidatura para um serviço.
-- `PUT /{id}/status`: Atualiza o status de uma candidatura.
-- `DELETE /{id}`: Remove uma candidatura.
+- `GET /em-andamento/{usuarioId}`: Candidaturas do próprio usuário (403 para outro usuário).
+- `POST /`: Candidata o usuário do token a um serviço em andamento e sem costureiro vinculado.
+- `PUT /{id}/status`: Pendente → Recusada (dono do serviço) ou Cancelada (candidato). Para aceitar, use o endpoint de serviços.
+- `DELETE /{id}`: Remove uma candidatura não aceita (candidato ou dono do serviço).
+
+### Avaliações (`/api/avaliacoes`) - Requer `[Authorize]`
+- `POST /`: Avalia a outra parte de um serviço Concluído (nota geral, comunicação e qualidade de 1 a 5; comentário opcional até 300 caracteres). Uma por participante.
+- `GET /feitas`: Ids dos serviços já avaliados pelo usuário do token.
+- `GET /servico/{servicoId}`: Avaliações de um serviço.
+- `GET /usuario/{usuarioId}?papel=`: Avaliações recebidas, com média e total como costureiro e como fornecedor.
+
+### Erros
+Respostas de erro usam `{ field?, message }` em pt-BR (400, 403, 404, 409, 422).
 
 ### Denúncias (`/api/denuncias`)
 - `GET /`: Lista todas as denúncias.

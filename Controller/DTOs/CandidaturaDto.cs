@@ -35,6 +35,9 @@ public class ServicoResumoDto
 
     public UsuarioResumoDto? Usuario { get; set; } 
     public List<MaquinarioResumoDto>? Maquinarios { get; set; } = [];
+
+    // Costureiro com candidatura aceita no serviço (null se ainda não houver)
+    public UsuarioResumoDto? CostureiroVinculado { get; set; }
 }
 
 public class CandidaturaDto
@@ -49,6 +52,14 @@ public class CandidaturaDto
 
 public class CriarCandidaturaDto
 {
-    public int UsuarioId { get; set; }
     public int ServicoId { get; set; }
+}
+
+public class CandidatoDto
+{
+    public int CandidaturaId { get; set; }
+    public CandidaturaStatus Status { get; set; }
+    public DateTime DataCandidatura { get; set; }
+
+    public UsuarioResumoDto Usuario { get; set; } = null!;
 }

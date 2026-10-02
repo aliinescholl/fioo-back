@@ -1,10 +1,14 @@
-﻿using Fioo.Data;
+﻿using Fioo.Controller.DTOs;
+using Fioo.Data;
 using Fioo.DTOs;
 using Fioo.Entities;
 using Fioo.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Fioo.Utils;
+using System.Globalization;
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -23,18 +27,152 @@ namespace Fioo.Controllers
             _context = context;
         }
 
+        private static readonly string[] OrdenacoesValidas =
+            ["relevantes", "prazo-proximo", "prazo-distante", "maior-valor", "menor-valor"];
+
+        /// <summary>
+        /// Lista serviços de outros fornecedores com filtros, ordenação e paginação (uma única consulta).
+        /// Serviços sem localização, sem valor ou sem prazo não entram quando o filtro correspondente
+        /// está ativo, e ficam por último nas ordenações por valor ou prazo.
+        /// </summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<ServicoResumoDto>>> GetAll([FromQuery] int usuarioId)
+        public async Task<ActionResult<PaginaServicosDto>> GetAll([FromQuery] ServicoFiltroDto filtro)
         {
-            var servicos = await _context.Servicos
-                .Where(s => s.Status == ServicoStatus.Ativo && s.UsuarioId != usuarioId)
-                .Include(s => s.Usuario)
-                .Include(s => s.Maquinarios)!
-                    .ThenInclude(sm => sm.Maquinario)
-                .OrderByDescending(s => s.DataCriacao)
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var erro = ValidarFiltro(filtro);
+            if (erro != null)
+                return erro;
+
+            var query = _context.Servicos
+                .AsNoTracking()
+                .Where(s => s.UsuarioId != userId.Value);
+
+            if (!string.IsNullOrWhiteSpace(filtro.Busca))
+                query = query.Where(s => AppDbContext.NormalizarTexto(s.Titulo).Contains(AppDbContext.NormalizarTexto(filtro.Busca)));
+
+            if (!string.IsNullOrWhiteSpace(filtro.Uf))
+            {
+                var uf = filtro.Uf.Trim().ToUpperInvariant();
+                query = query.Where(s => s.Estado == uf);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filtro.Cidade))
+                query = query.Where(s => s.Cidade != null
+                    && AppDbContext.NormalizarTexto(s.Cidade).Contains(AppDbContext.NormalizarTexto(filtro.Cidade)));
+
+            if (filtro.ValorMin.HasValue)
+                query = query.Where(s => s.Valor >= filtro.ValorMin);
+
+            if (filtro.ValorMax.HasValue)
+                query = query.Where(s => s.Valor <= filtro.ValorMax);
+
+            if (filtro.Cobranca.HasValue)
+            {
+                var cobranca = (CobrancaTipo)filtro.Cobranca.Value;
+                query = query.Where(s => s.TipoCobranca == cobranca);
+            }
+
+            if (filtro.Prazo.HasValue)
+            {
+                var prazo = (PrazoTipo)filtro.Prazo.Value;
+                query = query.Where(s => s.TipoPrazo == prazo);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filtro.Categoria))
+                query = query.Where(s => s.CategoriaServico != null
+                    && AppDbContext.NormalizarTexto(s.CategoriaServico) == AppDbContext.NormalizarTexto(filtro.Categoria));
+
+            if (filtro.Status.HasValue)
+            {
+                var status = (ServicoStatus)filtro.Status.Value;
+                query = query.Where(s => s.Status == status);
+            }
+
+            // Desempate sempre por Id, para a paginação ser estável
+            query = (filtro.Ordenacao ?? "relevantes") switch
+            {
+                "prazo-proximo" => query.OrderBy(s => s.DataReferenciaPrazo == null).ThenBy(s => s.DataReferenciaPrazo).ThenBy(s => s.Id),
+                "prazo-distante" => query.OrderBy(s => s.DataReferenciaPrazo == null).ThenByDescending(s => s.DataReferenciaPrazo).ThenByDescending(s => s.Id),
+                "maior-valor" => query.OrderBy(s => s.Valor == null).ThenByDescending(s => s.Valor).ThenByDescending(s => s.Id),
+                "menor-valor" => query.OrderBy(s => s.Valor == null).ThenBy(s => s.Valor).ThenBy(s => s.Id),
+                // "Mais relevantes": serviços Em andamento antes de Concluído/Cancelado,
+                // depois os mais recentes primeiro
+                _ => query.OrderBy(s => s.Status != ServicoStatus.EmAndamento).ThenByDescending(s => s.DataCriacao).ThenByDescending(s => s.Id)
+            };
+
+            // Busca um item a mais só para saber se existe próxima página
+            var itens = await query
+                .Skip((filtro.Pagina - 1) * filtro.TamanhoPagina)
+                .Take(filtro.TamanhoPagina + 1)
+                .Select(s => new ServicoResumoDto
+                {
+                    Id = s.Id,
+                    Titulo = s.Titulo,
+                    Descricao = s.Descricao,
+                    Cidade = s.Cidade,
+                    Estado = s.Estado,
+                    CategoriaServico = s.CategoriaServico,
+                    Valor = s.Valor,
+                    TipoCobranca = s.TipoCobranca,
+                    TipoPrazo = s.TipoPrazo,
+                    DataPrazo = s.DataPrazo,
+                    Status = s.Status,
+                    DataCriacao = s.DataCriacao,
+                    Usuario = new UsuarioResumoDto
+                    {
+                        Id = s.Usuario!.Id,
+                        Nome = s.Usuario.Nome,
+                        NomeUsuario = s.Usuario.NomeUsuario,
+                        FotoPerfilUrl = s.Usuario.FotoPerfilUrl,
+                        Cidade = s.Usuario.Cidade,
+                        Estado = s.Usuario.Estado
+                    },
+                    Maquinarios = s.Maquinarios!
+                        .Select(sm => new MaquinarioResumoDto { Id = sm.Maquinario!.Id, Nome = sm.Maquinario.Nome })
+                        .ToList(),
+                    CostureiroVinculado = s.Candidaturas!
+                        .Where(c => c.Status == CandidaturaStatus.Aceita)
+                        .Select(c => new UsuarioResumoDto
+                        {
+                            Id = c.Usuario!.Id,
+                            Nome = c.Usuario.Nome,
+                            NomeUsuario = c.Usuario.NomeUsuario,
+                            FotoPerfilUrl = c.Usuario.FotoPerfilUrl,
+                            Cidade = c.Usuario.Cidade,
+                            Estado = c.Usuario.Estado
+                        })
+                        .FirstOrDefault()
+                })
                 .ToListAsync();
 
-            return Ok(servicos.Select(ToResumoDto));
+            return Ok(new PaginaServicosDto
+            {
+                Itens = itens.Take(filtro.TamanhoPagina).ToList(),
+                Pagina = filtro.Pagina,
+                TemMais = itens.Count > filtro.TamanhoPagina
+            });
+        }
+
+        /// <summary>
+        /// Categorias ("Serviço aplicado") já cadastradas, sem repetir variações de
+        /// maiúsculas/minúsculas ou acentos. Usada para montar o filtro de categoria.
+        /// </summary>
+        [HttpGet("categorias")]
+        public async Task<ActionResult<IEnumerable<string>>> GetCategorias()
+        {
+            var categorias = await _context.Servicos
+                .AsNoTracking()
+                .Where(s => s.CategoriaServico != null && s.CategoriaServico.Trim() != "")
+                .GroupBy(s => AppDbContext.NormalizarTexto(s.CategoriaServico))
+                .Select(g => new { Chave = g.Key, Nome = g.Min(s => s.CategoriaServico!.Trim()) })
+                .OrderBy(c => c.Chave)
+                .Select(c => c.Nome)
+                .ToListAsync();
+
+            return Ok(categorias);
         }
 
         [HttpGet("meus/{usuarioId}")]
@@ -45,6 +183,8 @@ namespace Fioo.Controllers
                 .Include(s => s.Usuario)
                 .Include(s => s.Maquinarios)!
                     .ThenInclude(sm => sm.Maquinario)
+                .Include(s => s.Candidaturas!.Where(c => c.Status == CandidaturaStatus.Aceita))
+                    .ThenInclude(c => c.Usuario)
                 .OrderByDescending(s => s.DataCriacao)
                 .ToListAsync();
 
@@ -58,6 +198,8 @@ namespace Fioo.Controllers
                 .Include(s => s.Usuario)
                 .Include(s => s.Maquinarios)!
                     .ThenInclude(sm => sm.Maquinario)
+                .Include(s => s.Candidaturas!.Where(c => c.Status == CandidaturaStatus.Aceita))
+                    .ThenInclude(c => c.Usuario)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servico == null)
@@ -75,47 +217,144 @@ namespace Fioo.Controllers
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Lista os candidatos de um serviço. Apenas o fornecedor dono do serviço pode ver.
+        /// </summary>
+        [HttpGet("{id}/candidaturas")]
+        public async Task<ActionResult<IEnumerable<CandidatoDto>>> GetCandidatos(int id)
+        {
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var donoId = await _context.Servicos
+                .Where(s => s.Id == id)
+                .Select(s => (int?)s.UsuarioId)
+                .FirstOrDefaultAsync();
+
+            if (donoId == null)
+                return NotFound(new { message = "Serviço não encontrado." });
+
+            if (donoId != userId.Value)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor dono do serviço pode ver os candidatos." });
+
+            var candidatos = await _context.Candidaturas
+                .AsNoTracking()
+                .Where(c => c.ServicoId == id)
+                .OrderByDescending(c => c.Status == CandidaturaStatus.Aceita)
+                .ThenBy(c => c.DataCandidatura)
+                .ThenBy(c => c.Id)
+                .Select(c => new CandidatoDto
+                {
+                    CandidaturaId = c.Id,
+                    Status = c.Status,
+                    DataCandidatura = c.DataCandidatura,
+                    Usuario = new UsuarioResumoDto
+                    {
+                        Id = c.Usuario!.Id,
+                        Nome = c.Usuario.Nome,
+                        NomeUsuario = c.Usuario.NomeUsuario,
+                        FotoPerfilUrl = c.Usuario.FotoPerfilUrl,
+                        Cidade = c.Usuario.Cidade,
+                        Estado = c.Usuario.Estado
+                    }
+                })
+                .ToListAsync();
+
+            return Ok(candidatos);
+        }
+
+        /// <summary>
+        /// Aceita um candidato: a candidatura passa a "Aceita" e vincula o costureiro ao serviço.
+        /// As demais candidaturas pendentes do serviço são recusadas automaticamente.
+        /// </summary>
+        [HttpPost("{id}/candidaturas/{candidaturaId}/aceitar")]
+        public async Task<IActionResult> AceitarCandidatura(int id, int candidaturaId)
+        {
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var servico = await _context.Servicos
+                .Include(s => s.Candidaturas)
+                .FirstOrDefaultAsync(s => s.Id == id);
+
+            if (servico == null)
+                return NotFound(new { message = "Serviço não encontrado." });
+
+            if (servico.UsuarioId != userId.Value)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor dono do serviço pode aceitar candidatos." });
+
+            var candidatura = servico.Candidaturas!.FirstOrDefault(c => c.Id == candidaturaId);
+            if (candidatura == null)
+                return NotFound(new { message = "Candidatura não encontrada neste serviço." });
+
+            if (servico.Status != ServicoStatus.EmAndamento)
+                return Conflict(new { message = "Só é possível aceitar candidatos em serviços em andamento." });
+
+            if (servico.Candidaturas!.Any(c => c.Status == CandidaturaStatus.Aceita))
+                return Conflict(new { message = "Este serviço já tem um costureiro." });
+
+            if (candidatura.Status != CandidaturaStatus.Pendente)
+                return Conflict(new { message = "Só é possível aceitar candidaturas pendentes." });
+
+            var agora = DateTime.UtcNow;
+            candidatura.Status = CandidaturaStatus.Aceita;
+            candidatura.DataAtualizacao = agora;
+
+            foreach (var outra in servico.Candidaturas!.Where(c => c.Id != candidatura.Id && c.Status == CandidaturaStatus.Pendente))
+            {
+                outra.Status = CandidaturaStatus.Recusada;
+                outra.DataAtualizacao = agora;
+            }
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                // Outro candidato foi aceito ao mesmo tempo (índice único parcial IX_Candidaturas_ServicoId_Aceita)
+                return Conflict(new { message = "Este serviço já tem um costureiro." });
+            }
+
+            return NoContent();
+        }
+
         [HttpPost]
         public async Task<ActionResult<Servico>> Create([FromBody] ServicoDto dto)
         {
             // valida token / tipo do usuário
             var tipo = GetUsuarioTipoFromClaims();
             if (tipo == null || tipo != UsuarioTipo.Fornecedor)
-                return Forbid("Apenas usuários do tipo Fornecedor podem criar serviços.");
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas usuários do tipo Fornecedor podem criar serviços." });
 
             var userId = GetUsuarioIdFromClaims();
             if (userId == null)
                 return Unauthorized();
 
-            // validações básicas do payload
-            if (string.IsNullOrWhiteSpace(dto.Titulo))
-                return BadRequest(new { field = "titulo", message = "Título é obrigatório." });
+            var erro = ValidarServico(dto, out var dataPrazo);
+            if (erro != null)
+                return erro;
 
-            if (dto.Valor.HasValue && dto.Valor < 0)
-                return BadRequest(new { field = "valor", message = "Valor não pode ser negativo." });
+            var dataCriacao = DateTime.UtcNow;
 
             // Mapear DTO para entidade, populando UsuarioId a partir do token
-            // Validar e parsear DataPrazo de forma segura
-            if (string.IsNullOrWhiteSpace(dto.DataPrazo))
-                return BadRequest(new { field = "dataPrazo", message = "DataPrazo é obrigatória." });
-
-            if (!DateOnly.TryParse(dto.DataPrazo, out var dataPrazo))
-                return BadRequest(new { field = "dataPrazo", message = "Formato de data inválido." });
-
             var servico = new Servico
             {
                 UsuarioId = userId.Value,
-                Titulo = dto.Titulo,
+                Titulo = dto.Titulo.Trim(),
                 Descricao = dto.Descricao,
-                Cidade = dto.Cidade,
-                Estado = dto.Estado,
+                Cidade = string.IsNullOrWhiteSpace(dto.Cidade) ? null : dto.Cidade.Trim(),
+                Estado = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim().ToUpperInvariant(),
                 TipoCobranca = dto.TipoCobranca,
-                CategoriaServico = dto.CategoriaServico,
+                CategoriaServico = await CategoriaCanonica(dto.CategoriaServico),
                 Valor = dto.Valor,
                 TipoPrazo = dto.TipoPrazo,
                 DataPrazo = dataPrazo,
-                Status = dto.Status,
-                DataCriacao = DateTime.UtcNow
+                DataReferenciaPrazo = PrazoHelper.CalcularDataReferencia(dto.TipoPrazo, dataPrazo, dataCriacao),
+                Status = ServicoStatus.EmAndamento, // todo serviço publicado nasce "Em andamento"
+                DataCriacao = dataCriacao
             };
 
             _context.Servicos.Add(servico);
@@ -125,32 +364,74 @@ namespace Fioo.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, Servico servico)
+        public async Task<IActionResult> Update(int id, [FromBody] ServicoDto dto)
         {
-            if (id != servico.Id)
-                return BadRequest();
-
             var existing = await _context.Servicos.FindAsync(id);
 
             if (existing == null)
-                return NotFound();
+                return NotFound(new { message = "Serviço não encontrado." });
 
             // Apenas o proprietário (fornecedor dono) pode atualizar
             var userId = GetUsuarioIdFromClaims();
             if (userId == null || existing.UsuarioId != userId.Value)
-                return Forbid("Apenas o fornecedor proprietário pode editar este serviço.");
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor proprietário pode editar este serviço." });
 
-            existing.Titulo = servico.Titulo;
-            existing.Descricao = servico.Descricao;
-            existing.Cidade = servico.Cidade;
-            existing.Estado = servico.Estado;
-            existing.TipoCobranca = servico.TipoCobranca;
-            existing.CategoriaServico = servico.CategoriaServico;
-            existing.Valor = servico.Valor;
-            existing.TipoPrazo = servico.TipoPrazo;
-            existing.DataPrazo = servico.DataPrazo;
-            existing.Status = servico.Status;
+            var erro = ValidarServico(dto, out var dataPrazo);
+            if (erro != null)
+                return erro;
 
+            existing.Titulo = dto.Titulo.Trim();
+            existing.Descricao = dto.Descricao;
+            existing.Cidade = string.IsNullOrWhiteSpace(dto.Cidade) ? null : dto.Cidade.Trim();
+            existing.Estado = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim().ToUpperInvariant();
+            existing.TipoCobranca = dto.TipoCobranca;
+            existing.CategoriaServico = await CategoriaCanonica(dto.CategoriaServico);
+            existing.Valor = dto.Valor;
+            existing.TipoPrazo = dto.TipoPrazo;
+            existing.DataPrazo = dataPrazo;
+            existing.DataReferenciaPrazo = PrazoHelper.CalcularDataReferencia(dto.TipoPrazo, dataPrazo, existing.DataCriacao);
+
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Altera o status do serviço (só o fornecedor dono). Ver ServicoStatusRegras.
+        /// Concluir exige costureiro vinculado (candidatura aceita).
+        /// </summary>
+        [HttpPatch("{id}/status")]
+        public async Task<IActionResult> AlterarStatus(int id, [FromBody] AlterarStatusServicoDto dto)
+        {
+            if (!Enum.IsDefined(dto.Status))
+                return BadRequest(new { field = "status", message = "Status inválido." });
+
+            var servico = await _context.Servicos.FindAsync(id);
+            if (servico == null)
+                return NotFound(new { message = "Serviço não encontrado." });
+
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null || servico.UsuarioId != userId.Value)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor dono do serviço pode alterar o status." });
+
+            if (!ServicoStatusRegras.TransicaoPermitida(servico.Status, dto.Status))
+            {
+                var mensagem = servico.Status == ServicoStatus.EmAndamento
+                    ? "O serviço já está em andamento."
+                    : "Este serviço já foi encerrado e o status não pode mais ser alterado.";
+                return Conflict(new { message = mensagem });
+            }
+
+            if (dto.Status == ServicoStatus.Concluido)
+            {
+                var temCostureiro = await _context.Candidaturas
+                    .AnyAsync(c => c.ServicoId == id && c.Status == CandidaturaStatus.Aceita);
+
+                if (!temCostureiro)
+                    return UnprocessableEntity(new { message = "Para concluir o serviço, aceite primeiro um costureiro." });
+            }
+
+            servico.Status = dto.Status;
             await _context.SaveChangesAsync();
 
             return NoContent();
@@ -166,7 +447,11 @@ namespace Fioo.Controllers
 
             var userId = GetUsuarioIdFromClaims();
             if (userId == null || servico.UsuarioId != userId.Value)
-                return Forbid("Apenas o fornecedor proprietário pode deletar este serviço.");
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor proprietário pode deletar este serviço." });
+
+            // As avaliações ficam no histórico dos usuários; serviço avaliado não pode ser excluído
+            if (await _context.Avaliacoes.AnyAsync(a => a.ServicoId == id))
+                return Conflict(new { message = "Não é possível excluir um serviço que já foi avaliado." });
 
             _context.Servicos.Remove(servico);
             await _context.SaveChangesAsync();
@@ -188,15 +473,11 @@ namespace Fioo.Controllers
             DataPrazo = s.DataPrazo,
             Status = s.Status,
             DataCriacao = s.DataCriacao,
-            Usuario = new UsuarioResumoDto
-            {
-                Id = s.Usuario!.Id,
-                Nome = s.Usuario.Nome,
-                NomeUsuario = s.Usuario.NomeUsuario,
-                FotoPerfilUrl = s.Usuario.FotoPerfilUrl,
-                Cidade = s.Usuario.Cidade,
-                Estado = s.Usuario.Estado
-            },
+            Usuario = ToUsuarioResumoDto(s.Usuario!),
+            CostureiroVinculado = s.Candidaturas?
+                .Where(c => c.Status == CandidaturaStatus.Aceita && c.Usuario != null)
+                .Select(c => ToUsuarioResumoDto(c.Usuario!))
+                .FirstOrDefault(),
             Maquinarios = s.Maquinarios?
                 .Where(sm => sm.Maquinario != null)
                 .Select(sm => new MaquinarioResumoDto
@@ -204,6 +485,107 @@ namespace Fioo.Controllers
                     Id = sm.Maquinario!.Id,
                     Nome = sm.Maquinario.Nome
                 }).ToList() ?? []
+        };
+
+        /// <summary>
+        /// Valida os campos do formulário de serviço (cadastro e edição).
+        /// A data do prazo só é obrigatória e só é guardada quando o prazo é "Data Específica".
+        /// </summary>
+        private static BadRequestObjectResult? ValidarServico(ServicoDto dto, out DateOnly? dataPrazo)
+        {
+            dataPrazo = null;
+
+            if (string.IsNullOrWhiteSpace(dto.Titulo))
+                return new BadRequestObjectResult(new { field = "titulo", message = "Título é obrigatório." });
+
+            // Limites das colunas no banco (evita erro 500 por texto longo demais)
+            if (dto.Titulo.Trim().Length > 200)
+                return new BadRequestObjectResult(new { field = "titulo", message = "O título pode ter no máximo 200 caracteres." });
+            if (dto.Cidade?.Trim().Length > 100)
+                return new BadRequestObjectResult(new { field = "cidade", message = "A cidade pode ter no máximo 100 caracteres." });
+            if (!string.IsNullOrWhiteSpace(dto.Estado) && dto.Estado.Trim().Length != 2)
+                return new BadRequestObjectResult(new { field = "estado", message = "Informe a UF com 2 letras." });
+            if (dto.CategoriaServico?.Trim().Length > 100)
+                return new BadRequestObjectResult(new { field = "categoriaServico", message = "A categoria pode ter no máximo 100 caracteres." });
+
+            if (!Enum.IsDefined(dto.TipoCobranca))
+                return new BadRequestObjectResult(new { field = "tipoCobranca", message = "Tipo de cobrança inválido." });
+
+            if (dto.Valor.HasValue && dto.Valor < 0)
+                return new BadRequestObjectResult(new { field = "valor", message = "Valor não pode ser negativo." });
+
+            if (dto.TipoPrazo == null)
+                return new BadRequestObjectResult(new { field = "tipoPrazo", message = "Escolha o prazo de entrega." });
+
+            if (!Enum.IsDefined(dto.TipoPrazo.Value))
+                return new BadRequestObjectResult(new { field = "tipoPrazo", message = "Prazo de entrega inválido." });
+
+            // Semanal, Quinzenal e Mensal não têm data: qualquer data enviada é ignorada
+            if (dto.TipoPrazo != PrazoTipo.DataEspecifica)
+                return null;
+
+            if (string.IsNullOrWhiteSpace(dto.DataPrazo))
+                return new BadRequestObjectResult(new { field = "dataPrazo", message = "Informe a data do prazo." });
+
+            if (!DateOnly.TryParseExact(dto.DataPrazo, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var data))
+                return new BadRequestObjectResult(new { field = "dataPrazo", message = "Data do prazo inválida." });
+
+            dataPrazo = data;
+            return null;
+        }
+
+        private static BadRequestObjectResult? ValidarFiltro(ServicoFiltroDto f)
+        {
+            static BadRequestObjectResult Erro(string campo, string mensagem) =>
+                new(new { field = campo, message = mensagem });
+
+            if (f.ValorMin < 0 || f.ValorMax < 0)
+                return Erro("valor", "O valor não pode ser negativo.");
+            if (f.ValorMin.HasValue && f.ValorMax.HasValue && f.ValorMin > f.ValorMax)
+                return Erro("valor", "O valor mínimo não pode ser maior que o valor máximo.");
+            if (f.Cobranca.HasValue && !Enum.IsDefined(typeof(CobrancaTipo), f.Cobranca.Value))
+                return Erro("cobranca", "Tipo de cobrança inválido.");
+            if (f.Prazo.HasValue && !Enum.IsDefined(typeof(PrazoTipo), f.Prazo.Value))
+                return Erro("prazo", "Tipo de entrega inválido.");
+            if (f.Status.HasValue && !Enum.IsDefined(typeof(ServicoStatus), f.Status.Value))
+                return Erro("status", "Status inválido.");
+            if (f.Uf != null && f.Uf.Trim().Length is not (0 or 2))
+                return Erro("uf", "UF inválida.");
+            if (f.Ordenacao != null && !OrdenacoesValidas.Contains(f.Ordenacao))
+                return Erro("ordenacao", "Ordenação inválida.");
+            if (f.Pagina < 1)
+                return Erro("pagina", "Página inválida.");
+            if (f.TamanhoPagina is < 1 or > 50)
+                return Erro("tamanhoPagina", "O tamanho da página deve ser entre 1 e 50.");
+            return null;
+        }
+
+        /// <summary>
+        /// Se a categoria digitada já existe com outra grafia (maiúsculas, acentos, espaços),
+        /// usa a grafia já cadastrada, a mesma exibida em GET /api/servicos/categorias.
+        /// </summary>
+        private async Task<string?> CategoriaCanonica(string? categoria)
+        {
+            if (string.IsNullOrWhiteSpace(categoria))
+                return null;
+
+            var existente = await _context.Servicos
+                .Where(s => s.CategoriaServico != null
+                    && AppDbContext.NormalizarTexto(s.CategoriaServico) == AppDbContext.NormalizarTexto(categoria))
+                .Select(s => s.CategoriaServico!.Trim())
+                .MinAsync(c => (string?)c);
+
+            return existente ?? categoria.Trim();
+        }
+
+        private static UsuarioResumoDto ToUsuarioResumoDto(Usuario u) => new()
+        {
+            Id = u.Id,
+            Nome = u.Nome,
+            NomeUsuario = u.NomeUsuario,
+            FotoPerfilUrl = u.FotoPerfilUrl,
+            Cidade = u.Cidade,
+            Estado = u.Estado
         };
 
         private int? GetUsuarioIdFromClaims()

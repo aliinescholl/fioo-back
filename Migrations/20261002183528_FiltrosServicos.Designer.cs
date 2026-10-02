@@ -3,6 +3,7 @@ using System;
 using Fioo.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Fioo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002183528_FiltrosServicos")]
+    partial class FiltrosServicos
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -40,8 +43,8 @@ namespace Fioo.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Comentario")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime>("DataAvaliacao")
                         .ValueGeneratedOnAdd()
@@ -51,40 +54,19 @@ namespace Fioo.Migrations
                     b.Property<short>("Nota")
                         .HasColumnType("smallint");
 
-                    b.Property<short>("NotaComunicacao")
-                        .HasColumnType("smallint");
-
-                    b.Property<short>("NotaQualidade")
-                        .HasColumnType("smallint");
-
-                    b.Property<string>("PapelAvaliado")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<int>("ServicoId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AvaliadoId");
+
                     b.HasIndex("AvaliadorId");
 
-                    b.HasIndex("AvaliadoId", "PapelAvaliado");
-
-                    b.HasIndex("ServicoId", "AvaliadorId")
+                    b.HasIndex("ServicoId", "AvaliadorId", "AvaliadoId")
                         .IsUnique();
 
-                    b.ToTable("Avaliacoes", t =>
-                        {
-                            t.HasCheckConstraint("CK_Avaliacoes_NaoAutoAvaliacao", "\"AvaliadorId\" <> \"AvaliadoId\"");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_Nota", "\"Nota\" BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_NotaComunicacao", "\"NotaComunicacao\" BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_NotaQualidade", "\"NotaQualidade\" BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_PapelAvaliado", "\"PapelAvaliado\" IN ('Costureiro', 'Fornecedor')");
-                        });
+                    b.ToTable("Avaliacoes");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Candidatura", b =>
@@ -486,7 +468,7 @@ namespace Fioo.Migrations
                     b.HasOne("Fioo.Entities.Servico", "Servico")
                         .WithMany("Avaliacoes")
                         .HasForeignKey("ServicoId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Avaliado");
