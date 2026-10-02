@@ -20,8 +20,7 @@ public class PrazoServicoTests(FiooApiFactory api)
         tipoCobranca = (int)CobrancaTipo.PorPeca,
         valor = 1.5m,
         tipoPrazo = (int?)tipoPrazo,
-        dataPrazo,
-        status = (int)ServicoStatus.Ativo
+        dataPrazo
     };
 
     private async Task<HttpResponseMessage> Cadastrar(object payload)
@@ -111,7 +110,7 @@ public class PrazoServicoTests(FiooApiFactory api)
     public async Task Edicao_por_quem_nao_e_dono_retorna_403()
     {
         var (dono, outro) = (await api.CriarUsuario(UsuarioTipo.Fornecedor), await api.CriarUsuario(UsuarioTipo.Fornecedor));
-        var servico = await api.CriarServico(dono, ServicoStatus.Ativo);
+        var servico = await api.CriarServico(dono, ServicoStatus.EmAndamento);
 
         var resposta = await api.ClienteDe(outro).PutAsJsonAsync($"/api/servicos/{servico.Id}", Payload(PrazoTipo.Semanal, null));
 

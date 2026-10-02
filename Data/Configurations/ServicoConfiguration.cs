@@ -38,6 +38,10 @@ public class ServicoConfiguration : IEntityTypeConfiguration<Servico>
         e.Property(s => s.Status)
             .HasConversion<string>();
 
+        e.ToTable(t => t.HasCheckConstraint(
+            "CK_Servicos_Status",
+            "\"Status\" IN ('EmAndamento', 'Concluido', 'Cancelado')"));
+
         e.Property(s => s.DataCriacao)
             .HasDefaultValueSql("now()");
 

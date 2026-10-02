@@ -30,7 +30,7 @@ namespace Fioo.Controllers
         public async Task<ActionResult<IEnumerable<ServicoResumoDto>>> GetAll([FromQuery] int usuarioId)
         {
             var servicos = await _context.Servicos
-                .Where(s => s.Status == ServicoStatus.Ativo && s.UsuarioId != usuarioId)
+                .Where(s => s.Status == ServicoStatus.EmAndamento && s.UsuarioId != usuarioId)
                 .Include(s => s.Usuario)
                 .Include(s => s.Maquinarios)!
                     .ThenInclude(sm => sm.Maquinario)
@@ -156,7 +156,7 @@ namespace Fioo.Controllers
             if (candidatura == null)
                 return NotFound(new { message = "Candidatura não encontrada neste serviço." });
 
-            if (!EstaEmAndamento(servico))
+            if (servico.Status != ServicoStatus.EmAndamento)
                 return Conflict(new { message = "Só é possível aceitar candidatos em serviços em andamento." });
 
             if (servico.Candidaturas!.Any(c => c.Status == CandidaturaStatus.Aceita))
@@ -220,7 +220,7 @@ namespace Fioo.Controllers
                 TipoPrazo = dto.TipoPrazo,
                 DataPrazo = dataPrazo,
                 DataReferenciaPrazo = PrazoHelper.CalcularDataReferencia(dto.TipoPrazo, dataPrazo, dataCriacao),
-                Status = dto.Status,
+                Status = ServicoStatus.EmAndamento, // todo serviço publicado nasce "Em andamento"
                 DataCriacao = dataCriacao
             };
 
@@ -257,8 +257,48 @@ namespace Fioo.Controllers
             existing.TipoPrazo = dto.TipoPrazo;
             existing.DataPrazo = dataPrazo;
             existing.DataReferenciaPrazo = PrazoHelper.CalcularDataReferencia(dto.TipoPrazo, dataPrazo, existing.DataCriacao);
-            existing.Status = dto.Status;
 
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Altera o status do serviço (só o fornecedor dono). Ver ServicoStatusRegras.
+        /// Concluir exige costureiro vinculado (candidatura aceita).
+        /// </summary>
+        [HttpPatch("{id}/status")]
+        public async Task<IActionResult> AlterarStatus(int id, [FromBody] AlterarStatusServicoDto dto)
+        {
+            if (!Enum.IsDefined(dto.Status))
+                return BadRequest(new { field = "status", message = "Status inválido." });
+
+            var servico = await _context.Servicos.FindAsync(id);
+            if (servico == null)
+                return NotFound(new { message = "Serviço não encontrado." });
+
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null || servico.UsuarioId != userId.Value)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor dono do serviço pode alterar o status." });
+
+            if (!ServicoStatusRegras.TransicaoPermitida(servico.Status, dto.Status))
+            {
+                var mensagem = servico.Status == ServicoStatus.EmAndamento
+                    ? "O serviço já está em andamento."
+                    : "Este serviço já foi encerrado e o status não pode mais ser alterado.";
+                return Conflict(new { message = mensagem });
+            }
+
+            if (dto.Status == ServicoStatus.Concluido)
+            {
+                var temCostureiro = await _context.Candidaturas
+                    .AnyAsync(c => c.ServicoId == id && c.Status == CandidaturaStatus.Aceita);
+
+                if (!temCostureiro)
+                    return UnprocessableEntity(new { message = "Para concluir o serviço, aceite primeiro um costureiro." });
+            }
+
+            servico.Status = dto.Status;
             await _context.SaveChangesAsync();
 
             return NoContent();
@@ -356,10 +396,6 @@ namespace Fioo.Controllers
             Cidade = u.Cidade,
             Estado = u.Estado
         };
-
-        // Até a padronização de status (Fase 2), "Ativo" e "EmAndamento" equivalem a "Em andamento"
-        private static bool EstaEmAndamento(Servico s) =>
-            s.Status == ServicoStatus.Ativo || s.Status == ServicoStatus.EmAndamento;
 
         private int? GetUsuarioIdFromClaims()
         {

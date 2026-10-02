@@ -1,14 +1,16 @@
 using System.ComponentModel;
 namespace Fioo.Enums;
 
+/// <summary>
+/// Status do serviço. Nasce em "Em andamento" (publicado e ainda não encerrado);
+/// "Concluído" e "Cancelado" são estados finais. Ver ServicoStatusRegras.
+/// </summary>
 public enum ServicoStatus
 {
-    [Description("Ativo")]
-    Ativo = 0,
-    [Description("EmAndamento")]
+    [Description("Em andamento")]
     EmAndamento = 1,
-    [Description("Finalizado")]
-    Finalizado = 2,
+    [Description("Concluído")]
+    Concluido = 2,
     [Description("Cancelado")]
     Cancelado = 3
 }

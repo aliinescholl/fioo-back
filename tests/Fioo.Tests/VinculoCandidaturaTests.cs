@@ -16,7 +16,7 @@ public class VinculoCandidaturaTests(FiooApiFactory api)
 {
     private static string UrlAceitar(Servico s, Candidatura c) => $"/api/servicos/{s.Id}/candidaturas/{c.Id}/aceitar";
 
-    private async Task<(Usuario fornecedor, Servico servico)> CenarioServico(ServicoStatus status = ServicoStatus.Ativo)
+    private async Task<(Usuario fornecedor, Servico servico)> CenarioServico(ServicoStatus status = ServicoStatus.EmAndamento)
     {
         var fornecedor = await api.CriarUsuario(UsuarioTipo.Fornecedor);
         var servico = await api.CriarServico(fornecedor, status);

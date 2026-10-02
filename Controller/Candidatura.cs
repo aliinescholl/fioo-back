@@ -122,8 +122,8 @@ namespace Fioo.Controllers
             if (servico == null)
                 return NotFound("Serviço não encontrado.");
 
-            if (servico.Status != ServicoStatus.Ativo)
-                return BadRequest("Não é possível se candidatar a um serviço que não está ativo.");
+            if (servico.Status != ServicoStatus.EmAndamento)
+                return Conflict("Só é possível se candidatar a serviços em andamento.");
 
             if (servico.UsuarioId == userId.Value)
                 return BadRequest("Você não pode se candidatar ao seu próprio serviço.");
