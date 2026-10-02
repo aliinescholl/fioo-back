@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Fioo.Utils;
+using System.Globalization;
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -192,27 +194,19 @@ namespace Fioo.Controllers
             // valida token / tipo do usuário
             var tipo = GetUsuarioTipoFromClaims();
             if (tipo == null || tipo != UsuarioTipo.Fornecedor)
-                return Forbid("Apenas usuários do tipo Fornecedor podem criar serviços.");
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas usuários do tipo Fornecedor podem criar serviços." });
 
             var userId = GetUsuarioIdFromClaims();
             if (userId == null)
                 return Unauthorized();
 
-            // validações básicas do payload
-            if (string.IsNullOrWhiteSpace(dto.Titulo))
-                return BadRequest(new { field = "titulo", message = "Título é obrigatório." });
+            var erro = ValidarServico(dto, out var dataPrazo);
+            if (erro != null)
+                return erro;
 
-            if (dto.Valor.HasValue && dto.Valor < 0)
-                return BadRequest(new { field = "valor", message = "Valor não pode ser negativo." });
+            var dataCriacao = DateTime.UtcNow;
 
             // Mapear DTO para entidade, populando UsuarioId a partir do token
-            // Validar e parsear DataPrazo de forma segura
-            if (string.IsNullOrWhiteSpace(dto.DataPrazo))
-                return BadRequest(new { field = "dataPrazo", message = "DataPrazo é obrigatória." });
-
-            if (!DateOnly.TryParse(dto.DataPrazo, out var dataPrazo))
-                return BadRequest(new { field = "dataPrazo", message = "Formato de data inválido." });
-
             var servico = new Servico
             {
                 UsuarioId = userId.Value,
@@ -225,8 +219,9 @@ namespace Fioo.Controllers
                 Valor = dto.Valor,
                 TipoPrazo = dto.TipoPrazo,
                 DataPrazo = dataPrazo,
+                DataReferenciaPrazo = PrazoHelper.CalcularDataReferencia(dto.TipoPrazo, dataPrazo, dataCriacao),
                 Status = dto.Status,
-                DataCriacao = DateTime.UtcNow
+                DataCriacao = dataCriacao
             };
 
             _context.Servicos.Add(servico);
@@ -236,31 +231,33 @@ namespace Fioo.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, Servico servico)
+        public async Task<IActionResult> Update(int id, [FromBody] ServicoDto dto)
         {
-            if (id != servico.Id)
-                return BadRequest();
-
             var existing = await _context.Servicos.FindAsync(id);
 
             if (existing == null)
-                return NotFound();
+                return NotFound(new { message = "Serviço não encontrado." });
 
             // Apenas o proprietário (fornecedor dono) pode atualizar
             var userId = GetUsuarioIdFromClaims();
             if (userId == null || existing.UsuarioId != userId.Value)
-                return Forbid("Apenas o fornecedor proprietário pode editar este serviço.");
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor proprietário pode editar este serviço." });
 
-            existing.Titulo = servico.Titulo;
-            existing.Descricao = servico.Descricao;
-            existing.Cidade = servico.Cidade;
-            existing.Estado = servico.Estado;
-            existing.TipoCobranca = servico.TipoCobranca;
-            existing.CategoriaServico = servico.CategoriaServico;
-            existing.Valor = servico.Valor;
-            existing.TipoPrazo = servico.TipoPrazo;
-            existing.DataPrazo = servico.DataPrazo;
-            existing.Status = servico.Status;
+            var erro = ValidarServico(dto, out var dataPrazo);
+            if (erro != null)
+                return erro;
+
+            existing.Titulo = dto.Titulo;
+            existing.Descricao = dto.Descricao;
+            existing.Cidade = dto.Cidade;
+            existing.Estado = dto.Estado;
+            existing.TipoCobranca = dto.TipoCobranca;
+            existing.CategoriaServico = dto.CategoriaServico;
+            existing.Valor = dto.Valor;
+            existing.TipoPrazo = dto.TipoPrazo;
+            existing.DataPrazo = dataPrazo;
+            existing.DataReferenciaPrazo = PrazoHelper.CalcularDataReferencia(dto.TipoPrazo, dataPrazo, existing.DataCriacao);
+            existing.Status = dto.Status;
 
             await _context.SaveChangesAsync();
 
@@ -277,7 +274,7 @@ namespace Fioo.Controllers
 
             var userId = GetUsuarioIdFromClaims();
             if (userId == null || servico.UsuarioId != userId.Value)
-                return Forbid("Apenas o fornecedor proprietário pode deletar este serviço.");
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor proprietário pode deletar este serviço." });
 
             _context.Servicos.Remove(servico);
             await _context.SaveChangesAsync();
@@ -312,6 +309,43 @@ namespace Fioo.Controllers
                     Nome = sm.Maquinario.Nome
                 }).ToList() ?? []
         };
+
+        /// <summary>
+        /// Valida os campos do formulário de serviço (cadastro e edição).
+        /// A data do prazo só é obrigatória e só é guardada quando o prazo é "Data Específica".
+        /// </summary>
+        private static BadRequestObjectResult? ValidarServico(ServicoDto dto, out DateOnly? dataPrazo)
+        {
+            dataPrazo = null;
+
+            if (string.IsNullOrWhiteSpace(dto.Titulo))
+                return new BadRequestObjectResult(new { field = "titulo", message = "Título é obrigatório." });
+
+            if (!Enum.IsDefined(dto.TipoCobranca))
+                return new BadRequestObjectResult(new { field = "tipoCobranca", message = "Tipo de cobrança inválido." });
+
+            if (dto.Valor.HasValue && dto.Valor < 0)
+                return new BadRequestObjectResult(new { field = "valor", message = "Valor não pode ser negativo." });
+
+            if (dto.TipoPrazo == null)
+                return new BadRequestObjectResult(new { field = "tipoPrazo", message = "Escolha o prazo de entrega." });
+
+            if (!Enum.IsDefined(dto.TipoPrazo.Value))
+                return new BadRequestObjectResult(new { field = "tipoPrazo", message = "Prazo de entrega inválido." });
+
+            // Semanal, Quinzenal e Mensal não têm data: qualquer data enviada é ignorada
+            if (dto.TipoPrazo != PrazoTipo.DataEspecifica)
+                return null;
+
+            if (string.IsNullOrWhiteSpace(dto.DataPrazo))
+                return new BadRequestObjectResult(new { field = "dataPrazo", message = "Informe a data do prazo." });
+
+            if (!DateOnly.TryParseExact(dto.DataPrazo, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var data))
+                return new BadRequestObjectResult(new { field = "dataPrazo", message = "Data do prazo inválida." });
+
+            dataPrazo = data;
+            return null;
+        }
 
         private static UsuarioResumoDto ToUsuarioResumoDto(Usuario u) => new()
         {

@@ -14,6 +14,8 @@ public class Servico
     public decimal? Valor { get; set; }
     public PrazoTipo? TipoPrazo { get; set; }
     public DateOnly? DataPrazo { get; set; }
+    // Data usada para ordenar por prazo; calculada na criação/edição (ver PrazoHelper)
+    public DateOnly? DataReferenciaPrazo { get; set; }
     public ServicoStatus Status { get; set; }
     public DateTime DataCriacao { get; set; }
 
