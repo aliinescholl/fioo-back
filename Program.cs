@@ -70,3 +70,6 @@ if (!string.IsNullOrEmpty(jwtKey))
 app.MapControllers();
 
 app.Run();
+
+// Exposto para os testes de integração (WebApplicationFactory<Program>)
+public partial class Program { }

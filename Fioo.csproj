@@ -7,6 +7,13 @@
     <UserSecretsId>c5525542-894c-4d0f-8b8e-72994d8251a6</UserSecretsId>
   </PropertyGroup>
 
+  <!-- O projeto de testes fica em tests/ e não deve ser compilado junto com a API -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <Content Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />

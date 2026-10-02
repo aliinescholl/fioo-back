@@ -5,6 +5,7 @@ using Fioo.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -31,6 +32,8 @@ namespace Fioo.Controllers
                 .Include(s => s.Usuario)
                 .Include(s => s.Maquinarios)!
                     .ThenInclude(sm => sm.Maquinario)
+                .Include(s => s.Candidaturas!.Where(c => c.Status == CandidaturaStatus.Aceita))
+                    .ThenInclude(c => c.Usuario)
                 .OrderByDescending(s => s.DataCriacao)
                 .ToListAsync();
 
@@ -45,6 +48,8 @@ namespace Fioo.Controllers
                 .Include(s => s.Usuario)
                 .Include(s => s.Maquinarios)!
                     .ThenInclude(sm => sm.Maquinario)
+                .Include(s => s.Candidaturas!.Where(c => c.Status == CandidaturaStatus.Aceita))
+                    .ThenInclude(c => c.Usuario)
                 .OrderByDescending(s => s.DataCriacao)
                 .ToListAsync();
 
@@ -58,6 +63,8 @@ namespace Fioo.Controllers
                 .Include(s => s.Usuario)
                 .Include(s => s.Maquinarios)!
                     .ThenInclude(sm => sm.Maquinario)
+                .Include(s => s.Candidaturas!.Where(c => c.Status == CandidaturaStatus.Aceita))
+                    .ThenInclude(c => c.Usuario)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servico == null)
@@ -73,6 +80,110 @@ namespace Fioo.Controllers
                 .Where(s => s.UsuarioId == usuarioId)
                 .Include(s => s.Usuario)
                 .ToListAsync();
+        }
+
+        /// <summary>
+        /// Lista os candidatos de um serviço. Apenas o fornecedor dono do serviço pode ver.
+        /// </summary>
+        [HttpGet("{id}/candidaturas")]
+        public async Task<ActionResult<IEnumerable<CandidatoDto>>> GetCandidatos(int id)
+        {
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var donoId = await _context.Servicos
+                .Where(s => s.Id == id)
+                .Select(s => (int?)s.UsuarioId)
+                .FirstOrDefaultAsync();
+
+            if (donoId == null)
+                return NotFound(new { message = "Serviço não encontrado." });
+
+            if (donoId != userId.Value)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor dono do serviço pode ver os candidatos." });
+
+            var candidatos = await _context.Candidaturas
+                .AsNoTracking()
+                .Where(c => c.ServicoId == id)
+                .OrderByDescending(c => c.Status == CandidaturaStatus.Aceita)
+                .ThenBy(c => c.DataCandidatura)
+                .ThenBy(c => c.Id)
+                .Select(c => new CandidatoDto
+                {
+                    CandidaturaId = c.Id,
+                    Status = c.Status,
+                    DataCandidatura = c.DataCandidatura,
+                    Usuario = new UsuarioResumoDto
+                    {
+                        Id = c.Usuario!.Id,
+                        Nome = c.Usuario.Nome,
+                        NomeUsuario = c.Usuario.NomeUsuario,
+                        FotoPerfilUrl = c.Usuario.FotoPerfilUrl,
+                        Cidade = c.Usuario.Cidade,
+                        Estado = c.Usuario.Estado
+                    }
+                })
+                .ToListAsync();
+
+            return Ok(candidatos);
+        }
+
+        /// <summary>
+        /// Aceita um candidato: a candidatura passa a "Aceita" e vincula o costureiro ao serviço.
+        /// As demais candidaturas pendentes do serviço são recusadas automaticamente.
+        /// </summary>
+        [HttpPost("{id}/candidaturas/{candidaturaId}/aceitar")]
+        public async Task<IActionResult> AceitarCandidatura(int id, int candidaturaId)
+        {
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var servico = await _context.Servicos
+                .Include(s => s.Candidaturas)
+                .FirstOrDefaultAsync(s => s.Id == id);
+
+            if (servico == null)
+                return NotFound(new { message = "Serviço não encontrado." });
+
+            if (servico.UsuarioId != userId.Value)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Apenas o fornecedor dono do serviço pode aceitar candidatos." });
+
+            var candidatura = servico.Candidaturas!.FirstOrDefault(c => c.Id == candidaturaId);
+            if (candidatura == null)
+                return NotFound(new { message = "Candidatura não encontrada neste serviço." });
+
+            if (!EstaEmAndamento(servico))
+                return Conflict(new { message = "Só é possível aceitar candidatos em serviços em andamento." });
+
+            if (servico.Candidaturas!.Any(c => c.Status == CandidaturaStatus.Aceita))
+                return Conflict(new { message = "Este serviço já tem um costureiro." });
+
+            if (candidatura.Status != CandidaturaStatus.Pendente)
+                return Conflict(new { message = "Só é possível aceitar candidaturas pendentes." });
+
+            var agora = DateTime.UtcNow;
+            candidatura.Status = CandidaturaStatus.Aceita;
+            candidatura.DataAtualizacao = agora;
+
+            foreach (var outra in servico.Candidaturas!.Where(c => c.Id != candidatura.Id && c.Status == CandidaturaStatus.Pendente))
+            {
+                outra.Status = CandidaturaStatus.Recusada;
+                outra.DataAtualizacao = agora;
+            }
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                // Outro candidato foi aceito ao mesmo tempo (índice único parcial IX_Candidaturas_ServicoId_Aceita)
+                return Conflict(new { message = "Este serviço já tem um costureiro." });
+            }
+
+            return NoContent();
         }
 
         [HttpPost]
@@ -188,15 +299,11 @@ namespace Fioo.Controllers
             DataPrazo = s.DataPrazo,
             Status = s.Status,
             DataCriacao = s.DataCriacao,
-            Usuario = new UsuarioResumoDto
-            {
-                Id = s.Usuario!.Id,
-                Nome = s.Usuario.Nome,
-                NomeUsuario = s.Usuario.NomeUsuario,
-                FotoPerfilUrl = s.Usuario.FotoPerfilUrl,
-                Cidade = s.Usuario.Cidade,
-                Estado = s.Usuario.Estado
-            },
+            Usuario = ToUsuarioResumoDto(s.Usuario!),
+            CostureiroVinculado = s.Candidaturas?
+                .Where(c => c.Status == CandidaturaStatus.Aceita && c.Usuario != null)
+                .Select(c => ToUsuarioResumoDto(c.Usuario!))
+                .FirstOrDefault(),
             Maquinarios = s.Maquinarios?
                 .Where(sm => sm.Maquinario != null)
                 .Select(sm => new MaquinarioResumoDto
@@ -205,6 +312,20 @@ namespace Fioo.Controllers
                     Nome = sm.Maquinario.Nome
                 }).ToList() ?? []
         };
+
+        private static UsuarioResumoDto ToUsuarioResumoDto(Usuario u) => new()
+        {
+            Id = u.Id,
+            Nome = u.Nome,
+            NomeUsuario = u.NomeUsuario,
+            FotoPerfilUrl = u.FotoPerfilUrl,
+            Cidade = u.Cidade,
+            Estado = u.Estado
+        };
+
+        // Até a padronização de status (Fase 2), "Ativo" e "EmAndamento" equivalem a "Em andamento"
+        private static bool EstaEmAndamento(Servico s) =>
+            s.Status == ServicoStatus.Ativo || s.Status == ServicoStatus.EmAndamento;
 
         private int? GetUsuarioIdFromClaims()
         {
