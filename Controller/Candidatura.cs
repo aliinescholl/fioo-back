@@ -57,6 +57,10 @@ namespace Fioo.Controllers
         [HttpGet("em-andamento/{usuarioId}")]
         public async Task<ActionResult<IEnumerable<CandidaturaDto>>> GetEmAndamento(int usuarioId)
         {
+            // Cada usuário só vê as próprias candidaturas
+            if (GetUsuarioIdFromClaims() != usuarioId)
+                return StatusCode(StatusCodes.Status403Forbidden, "Você só pode ver as suas próprias candidaturas.");
+
             var candidaturas = await _context.Candidaturas
                 .Where(c => c.UsuarioId == usuarioId)
                 .Include(c => c.Servico)

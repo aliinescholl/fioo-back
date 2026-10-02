@@ -7,6 +7,7 @@ public class Usuario : EntidadeBase
     public string Nome { get; set; }
     public string NomeUsuario { get; set; }
     public string Email { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore] // nunca sai em respostas da API
     public string SenhaHash { get; set; }
     public string? CpfCnpj { get; set; }
     public string? RazaoSocial { get; set; }

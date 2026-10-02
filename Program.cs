@@ -7,11 +7,33 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// wwwroot precisa existir na inicialização; sem isso os uploads (fotos) não são servidos
+var webRoot = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(webRoot);
+builder.Environment.WebRootPath = webRoot;
+builder.Environment.WebRootFileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(webRoot);
+
 builder.Services.AddOpenApi();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Erros de leitura da requisição (ex.: ?valorMin=abc, JSON malformado) em pt-BR,
+        // no mesmo formato { field, message } usado pelos controllers
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var erro = context.ModelState.FirstOrDefault(e => e.Value?.Errors.Count > 0);
+            var campo = erro.Key?.Split('.', '[').LastOrDefault(p => p != "$" && p != "") ?? "";
+            if (campo.Length > 0)
+                campo = char.ToLowerInvariant(campo[0]) + campo[1..];
+            var mensagem = campo.Length > 0
+                ? $"O campo \"{campo}\" está com um valor inválido."
+                : "Os dados enviados estão incompletos ou em formato inválido.";
+            return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { field = campo, message = mensagem });
+        };
     });
 // OpenAPI / Swagger (se tiver Swashbuckle)
 builder.Services.AddEndpointsApiExplorer();

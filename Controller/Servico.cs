@@ -343,12 +343,12 @@ namespace Fioo.Controllers
             var servico = new Servico
             {
                 UsuarioId = userId.Value,
-                Titulo = dto.Titulo,
+                Titulo = dto.Titulo.Trim(),
                 Descricao = dto.Descricao,
-                Cidade = dto.Cidade,
-                Estado = dto.Estado,
+                Cidade = string.IsNullOrWhiteSpace(dto.Cidade) ? null : dto.Cidade.Trim(),
+                Estado = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim().ToUpperInvariant(),
                 TipoCobranca = dto.TipoCobranca,
-                CategoriaServico = dto.CategoriaServico,
+                CategoriaServico = await CategoriaCanonica(dto.CategoriaServico),
                 Valor = dto.Valor,
                 TipoPrazo = dto.TipoPrazo,
                 DataPrazo = dataPrazo,
@@ -380,12 +380,12 @@ namespace Fioo.Controllers
             if (erro != null)
                 return erro;
 
-            existing.Titulo = dto.Titulo;
+            existing.Titulo = dto.Titulo.Trim();
             existing.Descricao = dto.Descricao;
-            existing.Cidade = dto.Cidade;
-            existing.Estado = dto.Estado;
+            existing.Cidade = string.IsNullOrWhiteSpace(dto.Cidade) ? null : dto.Cidade.Trim();
+            existing.Estado = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim().ToUpperInvariant();
             existing.TipoCobranca = dto.TipoCobranca;
-            existing.CategoriaServico = dto.CategoriaServico;
+            existing.CategoriaServico = await CategoriaCanonica(dto.CategoriaServico);
             existing.Valor = dto.Valor;
             existing.TipoPrazo = dto.TipoPrazo;
             existing.DataPrazo = dataPrazo;
@@ -498,6 +498,16 @@ namespace Fioo.Controllers
             if (string.IsNullOrWhiteSpace(dto.Titulo))
                 return new BadRequestObjectResult(new { field = "titulo", message = "Título é obrigatório." });
 
+            // Limites das colunas no banco (evita erro 500 por texto longo demais)
+            if (dto.Titulo.Trim().Length > 200)
+                return new BadRequestObjectResult(new { field = "titulo", message = "O título pode ter no máximo 200 caracteres." });
+            if (dto.Cidade?.Trim().Length > 100)
+                return new BadRequestObjectResult(new { field = "cidade", message = "A cidade pode ter no máximo 100 caracteres." });
+            if (!string.IsNullOrWhiteSpace(dto.Estado) && dto.Estado.Trim().Length != 2)
+                return new BadRequestObjectResult(new { field = "estado", message = "Informe a UF com 2 letras." });
+            if (dto.CategoriaServico?.Trim().Length > 100)
+                return new BadRequestObjectResult(new { field = "categoriaServico", message = "A categoria pode ter no máximo 100 caracteres." });
+
             if (!Enum.IsDefined(dto.TipoCobranca))
                 return new BadRequestObjectResult(new { field = "tipoCobranca", message = "Tipo de cobrança inválido." });
 
@@ -548,6 +558,24 @@ namespace Fioo.Controllers
             if (f.TamanhoPagina is < 1 or > 50)
                 return Erro("tamanhoPagina", "O tamanho da página deve ser entre 1 e 50.");
             return null;
+        }
+
+        /// <summary>
+        /// Se a categoria digitada já existe com outra grafia (maiúsculas, acentos, espaços),
+        /// usa a grafia já cadastrada, a mesma exibida em GET /api/servicos/categorias.
+        /// </summary>
+        private async Task<string?> CategoriaCanonica(string? categoria)
+        {
+            if (string.IsNullOrWhiteSpace(categoria))
+                return null;
+
+            var existente = await _context.Servicos
+                .Where(s => s.CategoriaServico != null
+                    && AppDbContext.NormalizarTexto(s.CategoriaServico) == AppDbContext.NormalizarTexto(categoria))
+                .Select(s => s.CategoriaServico!.Trim())
+                .MinAsync(c => (string?)c);
+
+            return existente ?? categoria.Trim();
         }
 
         private static UsuarioResumoDto ToUsuarioResumoDto(Usuario u) => new()

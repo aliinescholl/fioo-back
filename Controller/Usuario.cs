@@ -59,7 +59,7 @@ public class UsuariosController : ControllerBase
         var usuario = new Usuario
         {
             Email = dto.Email,
-            SenhaHash = GerarHash(dto.Senha),
+            SenhaHash = SenhaHasher.Gerar(dto.Senha),
             Ativo = true
         };
 
@@ -168,9 +168,15 @@ public class UsuariosController : ControllerBase
         if (usuario == null)
             return Unauthorized("Credenciais inválidas.");
 
-        var hash = GerarHash(dto.Senha);
-        if (usuario.SenhaHash != hash)
+        if (!SenhaHasher.Verificar(dto.Senha, usuario.SenhaHash))
             return Unauthorized("Credenciais inválidas.");
+
+        // Contas com hash antigo (SHA-256 sem salt) passam para PBKDF2 ao entrar
+        if (SenhaHasher.PrecisaAtualizar(usuario.SenhaHash))
+        {
+            usuario.SenhaHash = SenhaHasher.Gerar(dto.Senha);
+            await _dbContext.SaveChangesAsync();
+        }
 
         var token = GerarJwt(usuario);
         return Ok(new { token });
@@ -289,13 +295,20 @@ public class UsuariosController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Dados completos só para o próprio usuário; para os demais, apenas os dados públicos.
+    /// </summary>
     [HttpGet("{id}")]
+    [Authorize]
     public async Task<IActionResult> ObterPorId(int id)
     {
+        if (GetUsuarioIdFromClaims() != id)
+            return (await ObterPerfilPublico(id)).Result!;
+
         var usuario = await _dbContext.Usuarios.FindAsync(id);
 
         if (usuario == null)
-            return NotFound();
+            return NotFound(new { message = "Usuário não encontrado." });
 
         return Ok(usuario);
     }
@@ -326,13 +339,30 @@ public class UsuariosController : ControllerBase
         return Ok(perfil);
     }
 
+    /// <summary>
+    /// Exclui a própria conta. Contas com histórico (candidaturas, avaliações, denúncias ou
+    /// serviço com costureiro vinculado) não podem ser excluídas, para não apagar dados de outras pessoas.
+    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize]
     public async Task<IActionResult> Deletar(int id)
     {
+        if (GetUsuarioIdFromClaims() != id)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Você só pode excluir a sua própria conta." });
+
         var usuario = await _dbContext.Usuarios.FindAsync(id);
 
         if (usuario == null)
-            return NotFound();
+            return NotFound(new { message = "Usuário não encontrado." });
+
+        var temHistorico =
+            await _dbContext.Candidaturas.AnyAsync(c => c.UsuarioId == id
+                || (c.Servico!.UsuarioId == id && c.Status == CandidaturaStatus.Aceita))
+            || await _dbContext.Avaliacoes.AnyAsync(a => a.AvaliadorId == id || a.AvaliadoId == id)
+            || await _dbContext.Denuncias.AnyAsync(d => d.DenuncianteId == id || d.DenunciadoId == id);
+
+        if (temHistorico)
+            return Conflict(new { message = "Não é possível excluir esta conta porque ela tem histórico de candidaturas, avaliações ou denúncias." });
 
         _dbContext.Usuarios.Remove(usuario);
         await _dbContext.SaveChangesAsync();
@@ -531,15 +561,6 @@ public class UsuariosController : ControllerBase
         if (int.TryParse(sub, out var id))
             return id;
         return null;
-    }
-
-    // Método de hash já existente
-    private static string GerarHash(string senha)
-    {
-        using var sha256 = SHA256.Create();
-        var bytes = Encoding.UTF8.GetBytes(senha);
-        var hash = sha256.ComputeHash(bytes);
-        return Convert.ToBase64String(hash);
     }
 
     // GerarJwt existente (preserve se já tiver)
