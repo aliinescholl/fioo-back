@@ -1,4 +1,5 @@
-﻿using Fioo.Data;
+﻿using Fioo.Controller.DTOs;
+using Fioo.Data;
 using Fioo.DTOs;
 using Fioo.Entities;
 using Fioo.Enums;
@@ -26,20 +27,152 @@ namespace Fioo.Controllers
             _context = context;
         }
 
+        private static readonly string[] OrdenacoesValidas =
+            ["relevantes", "prazo-proximo", "prazo-distante", "maior-valor", "menor-valor"];
+
+        /// <summary>
+        /// Lista serviços de outros fornecedores com filtros, ordenação e paginação (uma única consulta).
+        /// Serviços sem localização, sem valor ou sem prazo não entram quando o filtro correspondente
+        /// está ativo, e ficam por último nas ordenações por valor ou prazo.
+        /// </summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<ServicoResumoDto>>> GetAll([FromQuery] int usuarioId)
+        public async Task<ActionResult<PaginaServicosDto>> GetAll([FromQuery] ServicoFiltroDto filtro)
         {
-            var servicos = await _context.Servicos
-                .Where(s => s.Status == ServicoStatus.EmAndamento && s.UsuarioId != usuarioId)
-                .Include(s => s.Usuario)
-                .Include(s => s.Maquinarios)!
-                    .ThenInclude(sm => sm.Maquinario)
-                .Include(s => s.Candidaturas!.Where(c => c.Status == CandidaturaStatus.Aceita))
-                    .ThenInclude(c => c.Usuario)
-                .OrderByDescending(s => s.DataCriacao)
+            var userId = GetUsuarioIdFromClaims();
+            if (userId == null)
+                return Unauthorized();
+
+            var erro = ValidarFiltro(filtro);
+            if (erro != null)
+                return erro;
+
+            var query = _context.Servicos
+                .AsNoTracking()
+                .Where(s => s.UsuarioId != userId.Value);
+
+            if (!string.IsNullOrWhiteSpace(filtro.Busca))
+                query = query.Where(s => AppDbContext.NormalizarTexto(s.Titulo).Contains(AppDbContext.NormalizarTexto(filtro.Busca)));
+
+            if (!string.IsNullOrWhiteSpace(filtro.Uf))
+            {
+                var uf = filtro.Uf.Trim().ToUpperInvariant();
+                query = query.Where(s => s.Estado == uf);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filtro.Cidade))
+                query = query.Where(s => s.Cidade != null
+                    && AppDbContext.NormalizarTexto(s.Cidade).Contains(AppDbContext.NormalizarTexto(filtro.Cidade)));
+
+            if (filtro.ValorMin.HasValue)
+                query = query.Where(s => s.Valor >= filtro.ValorMin);
+
+            if (filtro.ValorMax.HasValue)
+                query = query.Where(s => s.Valor <= filtro.ValorMax);
+
+            if (filtro.Cobranca.HasValue)
+            {
+                var cobranca = (CobrancaTipo)filtro.Cobranca.Value;
+                query = query.Where(s => s.TipoCobranca == cobranca);
+            }
+
+            if (filtro.Prazo.HasValue)
+            {
+                var prazo = (PrazoTipo)filtro.Prazo.Value;
+                query = query.Where(s => s.TipoPrazo == prazo);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filtro.Categoria))
+                query = query.Where(s => s.CategoriaServico != null
+                    && AppDbContext.NormalizarTexto(s.CategoriaServico) == AppDbContext.NormalizarTexto(filtro.Categoria));
+
+            if (filtro.Status.HasValue)
+            {
+                var status = (ServicoStatus)filtro.Status.Value;
+                query = query.Where(s => s.Status == status);
+            }
+
+            // Desempate sempre por Id, para a paginação ser estável
+            query = (filtro.Ordenacao ?? "relevantes") switch
+            {
+                "prazo-proximo" => query.OrderBy(s => s.DataReferenciaPrazo == null).ThenBy(s => s.DataReferenciaPrazo).ThenBy(s => s.Id),
+                "prazo-distante" => query.OrderBy(s => s.DataReferenciaPrazo == null).ThenByDescending(s => s.DataReferenciaPrazo).ThenByDescending(s => s.Id),
+                "maior-valor" => query.OrderBy(s => s.Valor == null).ThenByDescending(s => s.Valor).ThenByDescending(s => s.Id),
+                "menor-valor" => query.OrderBy(s => s.Valor == null).ThenBy(s => s.Valor).ThenBy(s => s.Id),
+                // "Mais relevantes": serviços Em andamento antes de Concluído/Cancelado,
+                // depois os mais recentes primeiro
+                _ => query.OrderBy(s => s.Status != ServicoStatus.EmAndamento).ThenByDescending(s => s.DataCriacao).ThenByDescending(s => s.Id)
+            };
+
+            // Busca um item a mais só para saber se existe próxima página
+            var itens = await query
+                .Skip((filtro.Pagina - 1) * filtro.TamanhoPagina)
+                .Take(filtro.TamanhoPagina + 1)
+                .Select(s => new ServicoResumoDto
+                {
+                    Id = s.Id,
+                    Titulo = s.Titulo,
+                    Descricao = s.Descricao,
+                    Cidade = s.Cidade,
+                    Estado = s.Estado,
+                    CategoriaServico = s.CategoriaServico,
+                    Valor = s.Valor,
+                    TipoCobranca = s.TipoCobranca,
+                    TipoPrazo = s.TipoPrazo,
+                    DataPrazo = s.DataPrazo,
+                    Status = s.Status,
+                    DataCriacao = s.DataCriacao,
+                    Usuario = new UsuarioResumoDto
+                    {
+                        Id = s.Usuario!.Id,
+                        Nome = s.Usuario.Nome,
+                        NomeUsuario = s.Usuario.NomeUsuario,
+                        FotoPerfilUrl = s.Usuario.FotoPerfilUrl,
+                        Cidade = s.Usuario.Cidade,
+                        Estado = s.Usuario.Estado
+                    },
+                    Maquinarios = s.Maquinarios!
+                        .Select(sm => new MaquinarioResumoDto { Id = sm.Maquinario!.Id, Nome = sm.Maquinario.Nome })
+                        .ToList(),
+                    CostureiroVinculado = s.Candidaturas!
+                        .Where(c => c.Status == CandidaturaStatus.Aceita)
+                        .Select(c => new UsuarioResumoDto
+                        {
+                            Id = c.Usuario!.Id,
+                            Nome = c.Usuario.Nome,
+                            NomeUsuario = c.Usuario.NomeUsuario,
+                            FotoPerfilUrl = c.Usuario.FotoPerfilUrl,
+                            Cidade = c.Usuario.Cidade,
+                            Estado = c.Usuario.Estado
+                        })
+                        .FirstOrDefault()
+                })
                 .ToListAsync();
 
-            return Ok(servicos.Select(ToResumoDto));
+            return Ok(new PaginaServicosDto
+            {
+                Itens = itens.Take(filtro.TamanhoPagina).ToList(),
+                Pagina = filtro.Pagina,
+                TemMais = itens.Count > filtro.TamanhoPagina
+            });
+        }
+
+        /// <summary>
+        /// Categorias ("Serviço aplicado") já cadastradas, sem repetir variações de
+        /// maiúsculas/minúsculas ou acentos. Usada para montar o filtro de categoria.
+        /// </summary>
+        [HttpGet("categorias")]
+        public async Task<ActionResult<IEnumerable<string>>> GetCategorias()
+        {
+            var categorias = await _context.Servicos
+                .AsNoTracking()
+                .Where(s => s.CategoriaServico != null && s.CategoriaServico.Trim() != "")
+                .GroupBy(s => AppDbContext.NormalizarTexto(s.CategoriaServico))
+                .Select(g => new { Chave = g.Key, Nome = g.Min(s => s.CategoriaServico!.Trim()) })
+                .OrderBy(c => c.Chave)
+                .Select(c => c.Nome)
+                .ToListAsync();
+
+            return Ok(categorias);
         }
 
         [HttpGet("meus/{usuarioId}")]
@@ -384,6 +517,32 @@ namespace Fioo.Controllers
                 return new BadRequestObjectResult(new { field = "dataPrazo", message = "Data do prazo inválida." });
 
             dataPrazo = data;
+            return null;
+        }
+
+        private static BadRequestObjectResult? ValidarFiltro(ServicoFiltroDto f)
+        {
+            static BadRequestObjectResult Erro(string campo, string mensagem) =>
+                new(new { field = campo, message = mensagem });
+
+            if (f.ValorMin < 0 || f.ValorMax < 0)
+                return Erro("valor", "O valor não pode ser negativo.");
+            if (f.ValorMin.HasValue && f.ValorMax.HasValue && f.ValorMin > f.ValorMax)
+                return Erro("valor", "O valor mínimo não pode ser maior que o valor máximo.");
+            if (f.Cobranca.HasValue && !Enum.IsDefined(typeof(CobrancaTipo), f.Cobranca.Value))
+                return Erro("cobranca", "Tipo de cobrança inválido.");
+            if (f.Prazo.HasValue && !Enum.IsDefined(typeof(PrazoTipo), f.Prazo.Value))
+                return Erro("prazo", "Tipo de entrega inválido.");
+            if (f.Status.HasValue && !Enum.IsDefined(typeof(ServicoStatus), f.Status.Value))
+                return Erro("status", "Status inválido.");
+            if (f.Uf != null && f.Uf.Trim().Length is not (0 or 2))
+                return Erro("uf", "UF inválida.");
+            if (f.Ordenacao != null && !OrdenacoesValidas.Contains(f.Ordenacao))
+                return Erro("ordenacao", "Ordenação inválida.");
+            if (f.Pagina < 1)
+                return Erro("pagina", "Página inválida.");
+            if (f.TamanhoPagina is < 1 or > 50)
+                return Erro("tamanhoPagina", "O tamanho da página deve ser entre 1 e 50.");
             return null;
         }
 

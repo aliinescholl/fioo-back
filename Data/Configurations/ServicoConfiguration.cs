@@ -45,6 +45,14 @@ public class ServicoConfiguration : IEntityTypeConfiguration<Servico>
         e.Property(s => s.DataCriacao)
             .HasDefaultValueSql("now()");
 
+        // Índices usados pela listagem de serviços (filtros e ordenação):
+        // ordenação padrão "Mais relevantes" (status, depois mais recentes)
+        e.HasIndex(s => new { s.Status, s.DataCriacao });
+        // ordenação por prazo mais próximo/distante
+        e.HasIndex(s => s.DataReferenciaPrazo);
+        // faixa de valor e ordenação por maior/menor valor
+        e.HasIndex(s => s.Valor);
+
         e.HasOne(s => s.Usuario)
             .WithMany(u => u.Servicos)
             .HasForeignKey(s => s.UsuarioId)

@@ -77,7 +77,7 @@ public sealed class FiooApiFactory : WebApplicationFactory<Program>, IAsyncLifet
         return usuario;
     });
 
-    public Task<Servico> CriarServico(Usuario fornecedor, ServicoStatus status) => NoBanco(async db =>
+    public Task<Servico> CriarServico(Usuario fornecedor, ServicoStatus status, Action<Servico>? configurar = null) => NoBanco(async db =>
     {
         var servico = new Servico
         {
@@ -88,6 +88,7 @@ public sealed class FiooApiFactory : WebApplicationFactory<Program>, IAsyncLifet
             Status = status,
             DataCriacao = DateTime.UtcNow
         };
+        configurar?.Invoke(servico);
         db.Servicos.Add(servico);
         await db.SaveChangesAsync();
         return servico;
