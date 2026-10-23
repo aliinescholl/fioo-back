@@ -40,8 +40,8 @@ namespace Fioo.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Comentario")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
 
                     b.Property<DateTime>("DataAvaliacao")
                         .ValueGeneratedOnAdd()
@@ -51,19 +51,40 @@ namespace Fioo.Migrations
                     b.Property<short>("Nota")
                         .HasColumnType("smallint");
 
+                    b.Property<short>("NotaComunicacao")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("NotaQualidade")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("PapelAvaliado")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<int>("ServicoId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AvaliadoId");
-
                     b.HasIndex("AvaliadorId");
 
-                    b.HasIndex("ServicoId", "AvaliadorId", "AvaliadoId")
+                    b.HasIndex("AvaliadoId", "PapelAvaliado");
+
+                    b.HasIndex("ServicoId", "AvaliadorId")
                         .IsUnique();
 
-                    b.ToTable("Avaliacoes");
+                    b.ToTable("Avaliacoes", t =>
+                        {
+                            t.HasCheckConstraint("CK_Avaliacoes_NaoAutoAvaliacao", "\"AvaliadorId\" <> \"AvaliadoId\"");
+
+                            t.HasCheckConstraint("CK_Avaliacoes_Nota", "\"Nota\" BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("CK_Avaliacoes_NotaComunicacao", "\"NotaComunicacao\" BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("CK_Avaliacoes_NotaQualidade", "\"NotaQualidade\" BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("CK_Avaliacoes_PapelAvaliado", "\"PapelAvaliado\" IN ('Costureiro', 'Fornecedor')");
+                        });
                 });
 
             modelBuilder.Entity("Fioo.Entities.Candidatura", b =>
@@ -101,6 +122,10 @@ namespace Fioo.Migrations
 
                     b.HasIndex("ServicoId", "UsuarioId")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "ServicoId" }, "IX_Candidaturas_ServicoId_Aceita")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Aceita'");
 
                     b.ToTable("Candidaturas");
                 });
@@ -265,6 +290,9 @@ namespace Fioo.Migrations
                     b.Property<DateOnly?>("DataPrazo")
                         .HasColumnType("date");
 
+                    b.Property<DateOnly?>("DataReferenciaPrazo")
+                        .HasColumnType("date");
+
                     b.Property<string>("Descricao")
                         .HasColumnType("text");
 
@@ -296,9 +324,18 @@ namespace Fioo.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DataReferenciaPrazo");
+
                     b.HasIndex("UsuarioId");
 
-                    b.ToTable("Servicos");
+                    b.HasIndex("Valor");
+
+                    b.HasIndex("Status", "DataCriacao");
+
+                    b.ToTable("Servicos", t =>
+                        {
+                            t.HasCheckConstraint("CK_Servicos_Status", "\"Status\" IN ('EmAndamento', 'Concluido', 'Cancelado')");
+                        });
                 });
 
             modelBuilder.Entity("Fioo.Entities.ServicoMaquinario", b =>
@@ -485,7 +522,7 @@ namespace Fioo.Migrations
                     b.HasOne("Fioo.Entities.Servico", "Servico")
                         .WithMany("Avaliacoes")
                         .HasForeignKey("ServicoId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Avaliado");

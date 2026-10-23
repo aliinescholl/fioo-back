@@ -17,3 +17,5 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+# Arquivos enviados pelos usuários (fotos de perfil/portfólio)
+wwwroot/uploads/

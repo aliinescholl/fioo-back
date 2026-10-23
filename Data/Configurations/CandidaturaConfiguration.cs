@@ -16,6 +16,11 @@ public class CandidaturaConfiguration : IEntityTypeConfiguration<Candidatura>
 
         e.HasIndex(c => new { c.ServicoId, c.UsuarioId }).IsUnique();
 
+        // Vínculo do costureiro com o serviço: no máximo uma candidatura aceita por serviço
+        e.HasIndex(c => c.ServicoId, "IX_Candidaturas_ServicoId_Aceita")
+            .IsUnique()
+            .HasFilter("\"Status\" = 'Aceita'");
+
         e.Property(c => c.Status)
             .HasConversion<string>();
 

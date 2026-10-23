@@ -149,10 +149,11 @@ public class PasswordResetTests
 
         Assert.NotNull(result);
 
-        // Verifica que o hash no banco foi alterado
+        // Verifica que o hash no banco foi alterado e confere com a nova senha usando SenhaHasher
         var usuarioAtualizado = await db.Usuarios.FindAsync(usuario.Id);
         Assert.NotNull(usuarioAtualizado);
-        Assert.Equal(Hash("NovaSenhaForte@999"), usuarioAtualizado.SenhaHash);
+        Assert.True(Fioo.Utils.SenhaHasher.Verificar("NovaSenhaForte@999", usuarioAtualizado.SenhaHash));
+        Assert.False(Fioo.Utils.SenhaHasher.Verificar("SenhaAntiga@123", usuarioAtualizado.SenhaHash));
 
         // Verifica que o token foi marcado como usado
         var tokenRegistrado = await db.PasswordResetTokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
@@ -197,7 +198,8 @@ public class PasswordResetTests
         }) as BadRequestObjectResult;
 
         Assert.NotNull(result);
-        Assert.Equal("Token inválido ou expirado.", result.Value);
+        var msg = result.Value?.GetType().GetProperty("message")?.GetValue(result.Value)?.ToString();
+        Assert.Equal("Token inválido ou expirado.", msg);
 
         // Senha não pode ter sido alterada
         var usuarioAtualizado = await db.Usuarios.FindAsync(usuario.Id);
@@ -242,7 +244,8 @@ public class PasswordResetTests
         }) as BadRequestObjectResult;
 
         Assert.NotNull(result);
-        Assert.Equal("Token inválido ou expirado.", result.Value);
+        var msgUsado = result.Value?.GetType().GetProperty("message")?.GetValue(result.Value)?.ToString();
+        Assert.Equal("Token inválido ou expirado.", msgUsado);
 
         // Senha não pode ter sido alterada
         var usuarioAtualizado = await db.Usuarios.FindAsync(usuario.Id);

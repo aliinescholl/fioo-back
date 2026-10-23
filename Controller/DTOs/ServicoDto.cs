@@ -13,5 +13,9 @@ public class ServicoDto
     public decimal? Valor { get; set; }
     public PrazoTipo? TipoPrazo { get; set; }
     public string? DataPrazo { get; set; }
+}
+
+public class AlterarStatusServicoDto
+{
     public ServicoStatus Status { get; set; }
 }

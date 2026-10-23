@@ -1,4 +1,4 @@
-using Fioo.Data.Configurations;
+﻿using Fioo.Data.Configurations;
 using Fioo.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,9 +18,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Verificacao> Verificacoes => Set<Verificacao>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
+    /// <summary>
+    /// Função SQL normalizar_texto (criada na migration FiltrosServicos): remove espaços nas
+    /// pontas, acentos e maiúsculas, para buscas e comparações em pt-BR sem a extensão unaccent.
+    /// Só pode ser usada dentro de consultas LINQ.
+    /// </summary>
+    public static string NormalizarTexto(string? texto) => throw new NotSupportedException();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        modelBuilder.HasDbFunction(typeof(AppDbContext).GetMethod(nameof(NormalizarTexto), [typeof(string)])!)
+            .HasName("normalizar_texto");
     }
 }
