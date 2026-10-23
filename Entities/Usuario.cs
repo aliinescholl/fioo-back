@@ -18,6 +18,8 @@ public class Usuario : EntidadeBase
     public string? Estado { get; set; }
     public UsuarioTipo Tipo { get; set; }
     public string? FotoPerfilUrl { get; set; }
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? FotoUrl { get => FotoPerfilUrl; set => FotoPerfilUrl = value; }
     public int? AnosExperiencia { get; set; }
     public int QuantidadeAvaliacoesRecebidas { get => AvaliacoesRecebidas is null ? 0 : AvaliacoesRecebidas.Count(); }
     public float MediaAvaliacoes { get => AvaliacoesRecebidas is null || QuantidadeAvaliacoesRecebidas == 0 ? 0 : AvaliacoesRecebidas.Sum(a => a.Nota) / QuantidadeAvaliacoesRecebidas; }

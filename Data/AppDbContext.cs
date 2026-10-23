@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UsuarioMaquinario> UsuarioMaquinarios => Set<UsuarioMaquinario>();
     public DbSet<ServicoMaquinario> ServicoMaquinarios => Set<ServicoMaquinario>();
     public DbSet<Verificacao> Verificacoes => Set<Verificacao>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

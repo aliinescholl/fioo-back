@@ -170,6 +170,42 @@ namespace Fioo.Migrations
                     b.ToTable("Maquinarios");
                 });
 
+            modelBuilder.Entity("Fioo.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DataCriacao")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("ExpiraEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("UsadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("UsuarioId");
+
+                    b.ToTable("PasswordResetTokens");
+                });
+
             modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
                 {
                     b.Property<int>("Id")
@@ -495,6 +531,17 @@ namespace Fioo.Migrations
                     b.Navigation("Denunciado");
 
                     b.Navigation("Denunciante");
+                });
+
+            modelBuilder.Entity("Fioo.Entities.PasswordResetToken", b =>
+                {
+                    b.HasOne("Fioo.Entities.Usuario", "Usuario")
+                        .WithMany()
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Usuario");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Portfolio", b =>

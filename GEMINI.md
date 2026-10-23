@@ -40,11 +40,14 @@ A autorização é aplicada via atributo `[Authorize]` em controllers ou método
 - `POST /`: Cadastra um novo usuário.
 - `POST /login`: Autentica um usuário e retorna um token JWT.
 - `POST /verificar-email`: Verifica se um email já está em uso.
+- `POST /esqueci-senha`: Solicita redefinição de senha e envia e-mail com token seguro.
+- `POST /redefinir-senha`: Redefine a senha com base em token válido.
 - `GET /`: Lista todos os usuários.
 - `GET /{id}`: Obtém detalhes de um usuário específico.
 - `DELETE /{id}`: Remove um usuário.
 - `GET /me`: Obtém os dados do usuário autenticado (Requer `[Authorize]`).
 - `PUT /me`: Atualiza o perfil do usuário autenticado, incluindo upload de foto e portfólio (Requer `[Authorize]`).
+- `POST /{id}/foto`: Upload de foto de perfil para costureiros/fornecedores (`multipart/form-data`, Requer `[Authorize]`).
 
 ### Serviços (`/api/servicos`) - Requer `[Authorize]`
 - `GET /`: Lista todos os serviços ativos (excluindo os do próprio usuário).

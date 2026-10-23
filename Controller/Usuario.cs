@@ -25,17 +25,27 @@ public class UsuariosController : ControllerBase
     private readonly IConfiguration _appConfiguration;
     private readonly IWebHostEnvironment _webHostEnvironment;
     private readonly CnpjWsService _cnpjWsService;
+    private readonly EmailService _emailService;
+    private readonly FotoService _fotoService;
 
     // Upload rules
-    private readonly string[] _usuarioPermittedExtensions = { ".jpg", ".jpeg", ".png" };
+    private readonly string[] _usuarioPermittedExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
     private const long MaxFileSize = 2 * 1024 * 1024; // 2 MB
 
-    public UsuariosController(AppDbContext context, IConfiguration configuration, IWebHostEnvironment env, CnpjWsService cnpjWsService)
+    public UsuariosController(
+        AppDbContext context,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        CnpjWsService cnpjWsService,
+        EmailService emailService,
+        FotoService fotoService)
     {
         _dbContext = context;
         _appConfiguration = configuration;
         _webHostEnvironment = env;
         _cnpjWsService = cnpjWsService;
+        _emailService = emailService;
+        _fotoService = fotoService;
     }
 
     [HttpPost]
@@ -187,6 +197,113 @@ public class UsuariosController : ControllerBase
 
         var exists = await _dbContext.Usuarios.AnyAsync(u => u.Email == dto.Email);
         return Ok(exists);
+    }
+
+    [HttpPost("esqueci-senha")]
+    [HttpPost("/api/auth/esqueci-senha")]
+    [HttpPost("/auth/esqueci-senha")]
+    public async Task<IActionResult> EsqueciSenha([FromBody] EsqueciSenhaDto dto)
+    {
+        const string respostaPadrao = "Se o e-mail estiver cadastrado, você receberá um link de recuperação.";
+
+        if (string.IsNullOrWhiteSpace(dto.Email) || !ValidationHelpers.ValidarEmail(dto.Email))
+            return Ok(new { message = respostaPadrao });
+
+        var usuario = await _dbContext.Usuarios.FirstOrDefaultAsync(u => u.Email.ToLower() == dto.Email.ToLower().Trim());
+        if (usuario != null && usuario.Ativo)
+        {
+            // Invalida tokens anteriores não usados
+            var tokensAntigos = await _dbContext.PasswordResetTokens
+                .Where(t => t.UsuarioId == usuario.Id && t.UsadoEm == null)
+                .ToListAsync();
+            foreach (var t in tokensAntigos)
+            {
+                t.UsadoEm = DateTime.UtcNow;
+            }
+
+            // Gera token criptograficamente seguro com 32 bytes (base64url)
+            var bytes = new byte[32];
+            RandomNumberGenerator.Fill(bytes);
+            var token = Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+            var tokenHash = GerarHash(token);
+
+            var resetToken = new PasswordResetToken
+            {
+                UsuarioId = usuario.Id,
+                TokenHash = tokenHash,
+                ExpiraEm = DateTime.UtcNow.AddMinutes(30),
+                DataCriacao = DateTime.UtcNow
+            };
+
+            _dbContext.PasswordResetTokens.Add(resetToken);
+            await _dbContext.SaveChangesAsync();
+
+            var frontendUrl = _appConfiguration["FrontendUrl"] ?? "http://localhost:3000";
+            var link = $"{frontendUrl.TrimEnd('/')}/redefinir-senha?token={Uri.EscapeDataString(token)}";
+
+            var html = $@"
+                <div style=""font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"">
+                    <h2 style=""color: #333;"">Recuperação de Senha - Fioo</h2>
+                    <p>Olá, {(usuario.Nome ?? "usuário")}!</p>
+                    <p>Recebemos uma solicitação para redefinir a sua senha no Fioo.</p>
+                    <p>Clique no link abaixo para criar uma nova senha (este link expira em 30 minutos):</p>
+                    <p style=""text-align: center; margin: 30px 0;"">
+                        <a href=""{link}"" style=""background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;"">Redefinir Minha Senha</a>
+                    </p>
+                    <p>Ou copie e cole o link a seguir no seu navegador:</p>
+                    <p><a href=""{link}"">{link}</a></p>
+                    <p style=""color: #777; font-size: 12px; margin-top: 30px;"">Se você não solicitou a recuperação de senha, desconsidere este e-mail.</p>
+                </div>";
+
+            try
+            {
+                await _emailService.EnviarAsync(usuario.Email, "Recuperação de Senha - Fioo", html);
+            }
+            catch
+            {
+                // Não expõe detalhes de erro de SMTP para o cliente
+            }
+        }
+
+        return Ok(new { message = respostaPadrao });
+    }
+
+    [HttpPost("redefinir-senha")]
+    [HttpPost("/api/auth/redefinir-senha")]
+    [HttpPost("/auth/redefinir-senha")]
+    public async Task<IActionResult> RedefinirSenha([FromBody] RedefinirSenhaDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Token) || string.IsNullOrWhiteSpace(dto.NovaSenha))
+            return BadRequest("Token e nova senha são obrigatórios.");
+
+        if (!ValidationHelpers.ValidarSenhaForte(dto.NovaSenha))
+            return BadRequest("Senha fraca. Deve ter pelo menos 8 caracteres, conter letras maiúsculas, minúsculas e um caractere especial.");
+
+        var tokenHash = GerarHash(dto.Token);
+
+        var resetToken = await _dbContext.PasswordResetTokens
+            .Include(t => t.Usuario)
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash && t.UsadoEm == null && t.ExpiraEm > DateTime.UtcNow);
+
+        if (resetToken == null || resetToken.Usuario == null)
+            return BadRequest("Token inválido ou expirado.");
+
+        // Atualiza a senha com o mesmo método de hash do cadastro/login
+        resetToken.Usuario.SenhaHash = GerarHash(dto.NovaSenha);
+        resetToken.UsadoEm = DateTime.UtcNow;
+
+        // Invalida outros tokens pendentes
+        var outrosTokens = await _dbContext.PasswordResetTokens
+            .Where(t => t.UsuarioId == resetToken.UsuarioId && t.Id != resetToken.Id && t.UsadoEm == null)
+            .ToListAsync();
+        foreach (var t in outrosTokens)
+        {
+            t.UsadoEm = DateTime.UtcNow;
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(new { message = "Senha redefinida com sucesso." });
     }
 
     [HttpGet("costureiros")]
@@ -349,30 +466,17 @@ public class UsuariosController : ControllerBase
             }
         }
 
-        // Foto de perfil: upload seguro
+        // Foto de perfil: upload seguro via FotoService
         if (dto.FotoPerfil != null)
         {
-            var foto = dto.FotoPerfil;
-            if (foto.Length > MaxFileSize)
-                return BadRequest("Arquivo da foto excede o tamanho máximo permitido (2MB).");
-
-            var ext = Path.GetExtension(foto.FileName).ToLowerInvariant();
-            if (string.IsNullOrEmpty(ext) || !_usuarioPermittedExtensions.Contains(ext))
-                return BadRequest("Formato de foto inválido. Use .jpg, .jpeg ou .png.");
-
-            // Gera nome seguro
-            var uploadsDir = Path.Combine(_webHostEnvironment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "avatars");
-            Directory.CreateDirectory(uploadsDir);
-            var fileName = $"{Guid.NewGuid()}{ext}";
-            var filePath = Path.Combine(uploadsDir, fileName);
-
-            using (var stream = System.IO.File.Create(filePath))
+            try
             {
-                await foto.CopyToAsync(stream);
+                usuario.FotoPerfilUrl = await _fotoService.SalvarFotoPerfilAsync(dto.FotoPerfil, usuario.FotoPerfilUrl);
             }
-
-            // Define URL pública relativa
-            usuario.FotoPerfilUrl = $"/uploads/avatars/{fileName}";
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // Portfólio: salvar arquivos (placeholder: cria registros em Portfolios)
@@ -412,6 +516,42 @@ public class UsuariosController : ControllerBase
 
         // Retorna payload simples para front exibir feedback: mensagem + icone
         return Ok(new { message = "Alterações salvas", icon = "check" });
+    }
+
+    [HttpPost("{id}/foto")]
+    [HttpPost("/costureiros/{id}/foto")]
+    [HttpPost("/fornecedores/{id}/foto")]
+    [HttpPost("/api/costureiros/{id}/foto")]
+    [HttpPost("/api/fornecedores/{id}/foto")]
+    [Authorize]
+    public async Task<IActionResult> AtualizarFoto(int id, IFormFile? foto)
+    {
+        var userId = GetUsuarioIdFromClaims();
+        if (userId == null) return Unauthorized();
+        if (userId.Value != id) return Forbid();
+
+        if (foto == null || foto.Length == 0)
+            return BadRequest("Nenhum arquivo de imagem foi enviado.");
+
+        var usuario = await _dbContext.Usuarios.FindAsync(id);
+        if (usuario == null) return NotFound("Usuário não encontrado.");
+
+        try
+        {
+            var novaUrl = await _fotoService.SalvarFotoPerfilAsync(foto, usuario.FotoPerfilUrl);
+            usuario.FotoPerfilUrl = novaUrl;
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new
+            {
+                fotoUrl = novaUrl,
+                message = "Foto atualizada com sucesso."
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     // helpers para extrair informações do token
@@ -468,6 +608,7 @@ public class UsuariosController : ControllerBase
         return usuarios.Select(
             u => new ResumoListarUsuarioDto
             {
+                Id = u.Id,
                 Foto = u.FotoPerfilUrl,
                 Nome = u.Nome,
                 Localizacao = u.Cidade + " - " + u.Estado,
