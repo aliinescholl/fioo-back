@@ -7,28 +7,28 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Fioo.Migrations
 {
     /// <inheritdoc />
-    public partial class RecuperacaoSenha : Migration
+    public partial class AddPasswordResetToken : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "RecuperacoesSenha",
+                name: "PasswordResetTokens",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
                     UsuarioId = table.Column<int>(type: "integer", nullable: false),
-                    TokenHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    DataCriacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    DataExpiracao = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    DataUso = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    TokenHash = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+                    ExpiraEm = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UsadoEm = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DataCriacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_RecuperacoesSenha", x => x.Id);
+                    table.PrimaryKey("PK_PasswordResetTokens", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_RecuperacoesSenha_Usuarios_UsuarioId",
+                        name: "FK_PasswordResetTokens_Usuarios_UsuarioId",
                         column: x => x.UsuarioId,
                         principalTable: "Usuarios",
                         principalColumn: "Id",
@@ -36,14 +36,13 @@ namespace Fioo.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_RecuperacoesSenha_TokenHash",
-                table: "RecuperacoesSenha",
-                column: "TokenHash",
-                unique: true);
+                name: "IX_PasswordResetTokens_TokenHash",
+                table: "PasswordResetTokens",
+                column: "TokenHash");
 
             migrationBuilder.CreateIndex(
-                name: "IX_RecuperacoesSenha_UsuarioId",
-                table: "RecuperacoesSenha",
+                name: "IX_PasswordResetTokens_UsuarioId",
+                table: "PasswordResetTokens",
                 column: "UsuarioId");
         }
 
@@ -51,7 +50,7 @@ namespace Fioo.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "RecuperacoesSenha");
+                name: "PasswordResetTokens");
         }
     }
 }

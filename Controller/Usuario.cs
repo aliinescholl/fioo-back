@@ -31,19 +31,28 @@ public class UsuariosController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly FrontendSettings _frontend;
     private readonly ILogger<UsuariosController> _logger;
+    private readonly FotoService _fotoService;
 
     // Upload rules
-    private readonly string[] _usuarioPermittedExtensions = { ".jpg", ".jpeg", ".png" };
+    private readonly string[] _usuarioPermittedExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
     private const long MaxFileSize = 2 * 1024 * 1024; // 2 MB
 
-    public UsuariosController(AppDbContext context, IConfiguration configuration, IWebHostEnvironment env, CnpjWsService cnpjWsService,
-        IEmailService emailService, IOptions<FrontendSettings> frontend, ILogger<UsuariosController> logger)
+    public UsuariosController(
+        AppDbContext context,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        CnpjWsService cnpjWsService,
+        IEmailService emailService,
+        FotoService fotoService,
+        IOptions<FrontendSettings> frontend,
+        ILogger<UsuariosController> logger)
     {
         _dbContext = context;
         _appConfiguration = configuration;
         _webHostEnvironment = env;
         _cnpjWsService = cnpjWsService;
         _emailService = emailService;
+        _fotoService = fotoService;
         _frontend = frontend.Value;
         _logger = logger;
     }
@@ -205,105 +214,108 @@ public class UsuariosController : ControllerBase
         return Ok(exists);
     }
 
-    // ── Recuperação de senha ──
-
     public const int ValidadeRecuperacaoMinutos = 30;
     private static readonly TimeSpan IntervaloMinimoEntreSolicitacoes = TimeSpan.FromMinutes(1);
-    private const string MensagemSolicitacaoRecebida =
-        "Se o e-mail estiver cadastrado, enviaremos as instruções para redefinir a senha.";
 
-    /// <summary>
-    /// Gera um token de uso único (válido por 30 minutos) e envia o link por e-mail.
-    /// A resposta é sempre a mesma, exista ou não a conta, para não revelar e-mails cadastrados.
-    /// </summary>
-    [HttpPost("recuperar-senha")]
-    public async Task<IActionResult> SolicitarRecuperacaoSenha([FromBody] SolicitarRecuperacaoSenhaDto dto, CancellationToken cancellationToken)
+    [HttpPost("esqueci-senha")]
+    [HttpPost("/api/auth/esqueci-senha")]
+    [HttpPost("/auth/esqueci-senha")]
+    public async Task<IActionResult> EsqueciSenha([FromBody] EsqueciSenhaDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Email))
-            return BadRequest(new { field = "email", message = "Email é obrigatório." });
-        if (!ValidationHelpers.ValidarEmail(dto.Email))
-            return BadRequest(new { field = "email", message = "Email inválido." });
+        const string respostaPadrao = "Se o e-mail estiver cadastrado, você receberá um link de recuperação.";
 
-        var email = dto.Email.Trim();
-        var usuario = await _dbContext.Usuarios.FirstOrDefaultAsync(u => u.Email == email && u.Ativo, cancellationToken);
-        if (usuario == null)
-            return Ok(new { message = MensagemSolicitacaoRecebida });
+        if (string.IsNullOrWhiteSpace(dto.Email) || !ValidationHelpers.ValidarEmail(dto.Email))
+            return Ok(new { message = respostaPadrao });
 
-        var agora = DateTime.UtcNow;
-
-        // Evita disparos repetidos (e abuso do envio) em sequência
-        var ultima = await _dbContext.RecuperacoesSenha
-            .Where(r => r.UsuarioId == usuario.Id)
-            .MaxAsync(r => (DateTime?)r.DataCriacao, cancellationToken);
-        if (ultima.HasValue && agora - ultima.Value < IntervaloMinimoEntreSolicitacoes)
-            return Ok(new { message = MensagemSolicitacaoRecebida });
-
-        // Só o link mais recente vale
-        await _dbContext.RecuperacoesSenha
-            .Where(r => r.UsuarioId == usuario.Id && r.DataUso == null && r.DataExpiracao > agora)
-            .ExecuteUpdateAsync(r => r.SetProperty(x => x.DataExpiracao, agora), cancellationToken);
-
-        var token = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-        _dbContext.RecuperacoesSenha.Add(new RecuperacaoSenha
+        var usuario = await _dbContext.Usuarios.FirstOrDefaultAsync(u => u.Email.ToLower() == dto.Email.ToLower().Trim());
+        if (usuario != null && usuario.Ativo)
         {
-            UsuarioId = usuario.Id,
-            TokenHash = HashToken(token),
-            DataCriacao = agora,
-            DataExpiracao = agora.AddMinutes(ValidadeRecuperacaoMinutos)
-        });
-        await _dbContext.SaveChangesAsync(cancellationToken);
+            // Evita disparos repetidos (e abuso do envio): no máximo um e-mail por minuto por conta
+            var ultimaSolicitacao = await _dbContext.PasswordResetTokens
+                .Where(t => t.UsuarioId == usuario.Id)
+                .MaxAsync(t => (DateTime?)t.DataCriacao);
+            if (ultimaSolicitacao.HasValue && DateTime.UtcNow - ultimaSolicitacao.Value < IntervaloMinimoEntreSolicitacoes)
+                return Ok(new { message = respostaPadrao });
 
-        var conteudo = EmailTemplates.RecuperacaoSenha(usuario.Nome, _frontend.MontarLinkRedefinicao(token), ValidadeRecuperacaoMinutos);
-        try
-        {
-            await _emailService.EnviarAsync(usuario.Email, conteudo.Assunto, conteudo.Html, conteudo.Texto, cancellationToken);
+            // Invalida tokens anteriores não usados
+            var tokensAntigos = await _dbContext.PasswordResetTokens
+                .Where(t => t.UsuarioId == usuario.Id && t.UsadoEm == null)
+                .ToListAsync();
+            foreach (var t in tokensAntigos)
+            {
+                t.UsadoEm = DateTime.UtcNow;
+            }
+
+            // Gera token criptograficamente seguro com 32 bytes (base64url)
+            var bytes = new byte[32];
+            RandomNumberGenerator.Fill(bytes);
+            var token = Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+            var tokenHash = GerarHashToken(token);
+
+            var resetToken = new PasswordResetToken
+            {
+                UsuarioId = usuario.Id,
+                TokenHash = tokenHash,
+                ExpiraEm = DateTime.UtcNow.AddMinutes(ValidadeRecuperacaoMinutos),
+                DataCriacao = DateTime.UtcNow
+            };
+
+            _dbContext.PasswordResetTokens.Add(resetToken);
+            await _dbContext.SaveChangesAsync();
+
+            var conteudo = EmailTemplates.RecuperacaoSenha(usuario.Nome, _frontend.MontarLinkRedefinicao(token), ValidadeRecuperacaoMinutos);
+            try
+            {
+                await _emailService.EnviarAsync(usuario.Email, conteudo.Assunto, conteudo.Html, conteudo.Texto);
+            }
+            catch (Exception ex)
+            {
+                // Não expõe detalhes de erro de SMTP para o cliente (nem revela que a conta existe)
+                _logger.LogError("Não foi possível enviar o e-mail de recuperação de senha do usuário {UsuarioId} ({Erro}).",
+                    usuario.Id, (ex as EmailEnvioException)?.Erro.ToString() ?? ex.GetType().Name);
+            }
         }
-        catch (EmailEnvioException ex)
-        {
-            // O motivo já foi registrado pelo serviço de e-mail; a resposta continua genérica
-            _logger.LogError("Não foi possível enviar o e-mail de recuperação de senha do usuário {UsuarioId} ({Erro}).", usuario.Id, ex.Erro);
-        }
 
-        return Ok(new { message = MensagemSolicitacaoRecebida });
+        return Ok(new { message = respostaPadrao });
     }
 
-    /// <summary>Define a nova senha a partir do token recebido por e-mail (uso único).</summary>
     [HttpPost("redefinir-senha")]
-    public async Task<IActionResult> RedefinirSenha([FromBody] RedefinirSenhaDto dto, CancellationToken cancellationToken)
+    [HttpPost("/api/auth/redefinir-senha")]
+    [HttpPost("/auth/redefinir-senha")]
+    public async Task<IActionResult> RedefinirSenha([FromBody] RedefinirSenhaDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Token))
-            return BadRequest(new { field = "token", message = "Link de recuperação inválido." });
-        if (string.IsNullOrWhiteSpace(dto.NovaSenha))
-            return BadRequest(new { field = "novaSenha", message = "A nova senha é obrigatória." });
+        if (string.IsNullOrWhiteSpace(dto.Token) || string.IsNullOrWhiteSpace(dto.NovaSenha))
+            return BadRequest(new { message = "Token e nova senha são obrigatórios." });
+
         if (!ValidationHelpers.ValidarSenhaForte(dto.NovaSenha))
             return BadRequest(new { field = "novaSenha", message = "Senha fraca. Deve ter pelo menos 8 caracteres, conter letras maiúsculas, minúsculas e um caractere especial." });
 
-        var agora = DateTime.UtcNow;
-        var hash = HashToken(dto.Token.Trim());
-        var recuperacao = await _dbContext.RecuperacoesSenha
-            .Include(r => r.Usuario)
-            .FirstOrDefaultAsync(r => r.TokenHash == hash, cancellationToken);
+        var tokenHash = GerarHashToken(dto.Token);
 
-        if (recuperacao == null || recuperacao.DataUso != null || recuperacao.DataExpiracao <= agora || !recuperacao.Usuario.Ativo)
-            return BadRequest(new { field = "token", message = "Link de recuperação inválido ou expirado. Solicite um novo." });
+        var resetToken = await _dbContext.PasswordResetTokens
+            .Include(t => t.Usuario)
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash && t.UsadoEm == null && t.ExpiraEm > DateTime.UtcNow);
 
-        recuperacao.DataUso = agora;
-        recuperacao.Usuario.SenhaHash = SenhaHasher.Gerar(dto.NovaSenha);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        if (resetToken == null || resetToken.Usuario == null)
+            return BadRequest(new { message = "Token inválido ou expirado." });
 
-        // Invalida qualquer outro link pendente do mesmo usuário
-        await _dbContext.RecuperacoesSenha
-            .Where(r => r.UsuarioId == recuperacao.UsuarioId && r.DataUso == null && r.DataExpiracao > agora)
-            .ExecuteUpdateAsync(r => r.SetProperty(x => x.DataExpiracao, agora), cancellationToken);
+        // Atualiza a senha usando PBKDF2 com salt
+        resetToken.Usuario.SenhaHash = SenhaHasher.Gerar(dto.NovaSenha);
+        resetToken.UsadoEm = DateTime.UtcNow;
+
+        // Invalida outros tokens pendentes
+        var outrosTokens = await _dbContext.PasswordResetTokens
+            .Where(t => t.UsuarioId == resetToken.UsuarioId && t.Id != resetToken.Id && t.UsadoEm == null)
+            .ToListAsync();
+        foreach (var t in outrosTokens)
+        {
+            t.UsadoEm = DateTime.UtcNow;
+        }
+
+        await _dbContext.SaveChangesAsync();
 
         return Ok(new { message = "Senha redefinida com sucesso." });
     }
-
-    private static string HashToken(string token) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
-
-    private static string Base64UrlEncode(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static readonly string[] OrdenacoesUsuarios = ["relevantes", "avaliacao-alta", "avaliacao-baixa", "az", "za"];
 
@@ -599,30 +611,17 @@ public class UsuariosController : ControllerBase
             }
         }
 
-        // Foto de perfil: upload seguro
+        // Foto de perfil: upload seguro via FotoService
         if (dto.FotoPerfil != null)
         {
-            var foto = dto.FotoPerfil;
-            if (foto.Length > MaxFileSize)
-                return BadRequest("Arquivo da foto excede o tamanho máximo permitido (2MB).");
-
-            var ext = Path.GetExtension(foto.FileName).ToLowerInvariant();
-            if (string.IsNullOrEmpty(ext) || !_usuarioPermittedExtensions.Contains(ext))
-                return BadRequest("Formato de foto inválido. Use .jpg, .jpeg ou .png.");
-
-            // Gera nome seguro
-            var uploadsDir = Path.Combine(_webHostEnvironment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "avatars");
-            Directory.CreateDirectory(uploadsDir);
-            var fileName = $"{Guid.NewGuid()}{ext}";
-            var filePath = Path.Combine(uploadsDir, fileName);
-
-            using (var stream = System.IO.File.Create(filePath))
+            try
             {
-                await foto.CopyToAsync(stream);
+                usuario.FotoPerfilUrl = await _fotoService.SalvarFotoPerfilAsync(dto.FotoPerfil, usuario.FotoPerfilUrl);
             }
-
-            // Define URL pública relativa
-            usuario.FotoPerfilUrl = $"/uploads/avatars/{fileName}";
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // Portfólio: salvar arquivos (placeholder: cria registros em Portfolios)
@@ -664,6 +663,42 @@ public class UsuariosController : ControllerBase
         return Ok(new { message = "Alterações salvas", icon = "check" });
     }
 
+    [HttpPost("{id}/foto")]
+    [HttpPost("/costureiros/{id}/foto")]
+    [HttpPost("/fornecedores/{id}/foto")]
+    [HttpPost("/api/costureiros/{id}/foto")]
+    [HttpPost("/api/fornecedores/{id}/foto")]
+    [Authorize]
+    public async Task<IActionResult> AtualizarFoto(int id, IFormFile? foto)
+    {
+        var userId = GetUsuarioIdFromClaims();
+        if (userId == null) return Unauthorized();
+        if (userId.Value != id) return Forbid();
+
+        if (foto == null || foto.Length == 0)
+            return BadRequest("Nenhum arquivo de imagem foi enviado.");
+
+        var usuario = await _dbContext.Usuarios.FindAsync(id);
+        if (usuario == null) return NotFound("Usuário não encontrado.");
+
+        try
+        {
+            var novaUrl = await _fotoService.SalvarFotoPerfilAsync(foto, usuario.FotoPerfilUrl);
+            usuario.FotoPerfilUrl = novaUrl;
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new
+            {
+                fotoUrl = novaUrl,
+                message = "Foto atualizada com sucesso."
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
     // helpers para extrair informações do token
     private int? GetUsuarioIdFromClaims()
     {
@@ -702,5 +737,12 @@ public class UsuariosController : ControllerBase
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string GerarHashToken(string token)
+    {
+        using var sha256 = SHA256.Create();
+        var bytes = Encoding.UTF8.GetBytes(token);
+        return Convert.ToBase64String(sha256.ComputeHash(bytes));
     }
 }

@@ -19,6 +19,8 @@ public class Usuario : EntidadeBase
     public string? Estado { get; set; }
     public UsuarioTipo Tipo { get; set; }
     public string? FotoPerfilUrl { get; set; }
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? FotoUrl { get => FotoPerfilUrl; set => FotoPerfilUrl = value; }
     public int? AnosExperiencia { get; set; }
 
     public Verificacao? Verificacao { get; set; }

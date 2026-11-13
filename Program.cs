@@ -1,4 +1,4 @@
-﻿using Fioo.Data;
+using Fioo.Data;
 using Fioo.Services;
 using Fioo.Services.Email;
 using Microsoft.EntityFrameworkCore;
@@ -40,18 +40,38 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddControllers();
-
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Serviço de consulta CNPJ via API pública cnpj.ws
+// Serviços do sistema
 builder.Services.AddHttpClient<CnpjWsService>();
+builder.Services.AddScoped<FotoService>();
 
 // E-mail (SMTP Gmail). A senha de aplicativo vem só da variável de ambiente EmailSettings__SmtpPassword.
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.Secao));
-builder.Services.Configure<FrontendSettings>(builder.Configuration.GetSection(FrontendSettings.Secao));
+builder.Services.PostConfigure<EmailSettings>(o =>
+{
+    // Compatibilidade com o nome usado antes (Email:SenhaApp / Email__SenhaApp)
+    if (string.IsNullOrWhiteSpace(o.SmtpPassword))
+        o.SmtpPassword = builder.Configuration["Email:SenhaApp"];
+});
+// Links enviados por e-mail usam a mesma FrontendUrl do CORS
+builder.Services.Configure<FrontendSettings>(o =>
+    o.BaseUrl = builder.Configuration["FrontendUrl"] ?? o.BaseUrl);
 builder.Services.AddTransient<IEmailService, SmtpEmailService>();
+
+// CORS para permitir o frontend Next.js
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("FrontendPolicy", policy =>
+    {
+        var frontendUrl = builder.Configuration["FrontendUrl"] ?? "http://localhost:3000";
+        policy.WithOrigins(frontendUrl, "http://localhost:3000", "http://localhost:3001")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
 
 // JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -95,6 +115,8 @@ if (app.Environment.IsDevelopment())
 
 // Servir arquivos estáticos (imagens de perfil/portfólio)
 app.UseStaticFiles();
+
+app.UseCors("FrontendPolicy");
 
 if (!string.IsNullOrEmpty(jwtKey))
 {

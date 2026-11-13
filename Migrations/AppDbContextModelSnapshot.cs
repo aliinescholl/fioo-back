@@ -195,6 +195,42 @@ namespace Fioo.Migrations
                     b.ToTable("Maquinarios");
                 });
 
+            modelBuilder.Entity("Fioo.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DataCriacao")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("ExpiraEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("UsadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("UsuarioId");
+
+                    b.ToTable("PasswordResetTokens");
+                });
+
             modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
                 {
                     b.Property<int>("Id")
@@ -228,41 +264,6 @@ namespace Fioo.Migrations
                     b.HasIndex("UsuarioId");
 
                     b.ToTable("Portfolios");
-                });
-
-            modelBuilder.Entity("Fioo.Entities.RecuperacaoSenha", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("DataCriacao")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("DataExpiracao")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DataUso")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("UsuarioId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("UsuarioId");
-
-                    b.ToTable("RecuperacoesSenha", (string)null);
                 });
 
             modelBuilder.Entity("Fioo.Entities.Servico", b =>
@@ -569,10 +570,10 @@ namespace Fioo.Migrations
                     b.Navigation("Denunciante");
                 });
 
-            modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
+            modelBuilder.Entity("Fioo.Entities.PasswordResetToken", b =>
                 {
                     b.HasOne("Fioo.Entities.Usuario", "Usuario")
-                        .WithMany("Portfolios")
+                        .WithMany()
                         .HasForeignKey("UsuarioId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -580,10 +581,10 @@ namespace Fioo.Migrations
                     b.Navigation("Usuario");
                 });
 
-            modelBuilder.Entity("Fioo.Entities.RecuperacaoSenha", b =>
+            modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
                 {
                     b.HasOne("Fioo.Entities.Usuario", "Usuario")
-                        .WithMany()
+                        .WithMany("Portfolios")
                         .HasForeignKey("UsuarioId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

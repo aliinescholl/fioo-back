@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Fioo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261113183227_RecuperacaoSenha")]
-    partial class RecuperacaoSenha
+    [Migration("20261023143002_AddPasswordResetToken")]
+    partial class AddPasswordResetToken
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -43,8 +43,8 @@ namespace Fioo.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Comentario")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime>("DataAvaliacao")
                         .ValueGeneratedOnAdd()
@@ -54,40 +54,19 @@ namespace Fioo.Migrations
                     b.Property<short>("Nota")
                         .HasColumnType("smallint");
 
-                    b.Property<short>("NotaComunicacao")
-                        .HasColumnType("smallint");
-
-                    b.Property<short>("NotaQualidade")
-                        .HasColumnType("smallint");
-
-                    b.Property<string>("PapelAvaliado")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<int>("ServicoId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AvaliadoId");
+
                     b.HasIndex("AvaliadorId");
 
-                    b.HasIndex("AvaliadoId", "PapelAvaliado");
-
-                    b.HasIndex("ServicoId", "AvaliadorId")
+                    b.HasIndex("ServicoId", "AvaliadorId", "AvaliadoId")
                         .IsUnique();
 
-                    b.ToTable("Avaliacoes", t =>
-                        {
-                            t.HasCheckConstraint("CK_Avaliacoes_NaoAutoAvaliacao", "\"AvaliadorId\" <> \"AvaliadoId\"");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_Nota", "\"Nota\" BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_NotaComunicacao", "\"NotaComunicacao\" BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_NotaQualidade", "\"NotaQualidade\" BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("CK_Avaliacoes_PapelAvaliado", "\"PapelAvaliado\" IN ('Costureiro', 'Fornecedor')");
-                        });
+                    b.ToTable("Avaliacoes");
                 });
 
             modelBuilder.Entity("Fioo.Entities.Candidatura", b =>
@@ -125,10 +104,6 @@ namespace Fioo.Migrations
 
                     b.HasIndex("ServicoId", "UsuarioId")
                         .IsUnique();
-
-                    b.HasIndex(new[] { "ServicoId" }, "IX_Candidaturas_ServicoId_Aceita")
-                        .IsUnique()
-                        .HasFilter("\"Status\" = 'Aceita'");
 
                     b.ToTable("Candidaturas");
                 });
@@ -198,6 +173,42 @@ namespace Fioo.Migrations
                     b.ToTable("Maquinarios");
                 });
 
+            modelBuilder.Entity("Fioo.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DataCriacao")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("ExpiraEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("UsadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("UsuarioId");
+
+                    b.ToTable("PasswordResetTokens");
+                });
+
             modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
                 {
                     b.Property<int>("Id")
@@ -233,41 +244,6 @@ namespace Fioo.Migrations
                     b.ToTable("Portfolios");
                 });
 
-            modelBuilder.Entity("Fioo.Entities.RecuperacaoSenha", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("DataCriacao")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("DataExpiracao")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DataUso")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("UsuarioId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("UsuarioId");
-
-                    b.ToTable("RecuperacoesSenha", (string)null);
-                });
-
             modelBuilder.Entity("Fioo.Entities.Servico", b =>
                 {
                     b.Property<int>("Id")
@@ -290,9 +266,6 @@ namespace Fioo.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.Property<DateOnly?>("DataPrazo")
-                        .HasColumnType("date");
-
-                    b.Property<DateOnly?>("DataReferenciaPrazo")
                         .HasColumnType("date");
 
                     b.Property<string>("Descricao")
@@ -326,18 +299,9 @@ namespace Fioo.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DataReferenciaPrazo");
-
                     b.HasIndex("UsuarioId");
 
-                    b.HasIndex("Valor");
-
-                    b.HasIndex("Status", "DataCriacao");
-
-                    b.ToTable("Servicos", t =>
-                        {
-                            t.HasCheckConstraint("CK_Servicos_Status", "\"Status\" IN ('EmAndamento', 'Concluido', 'Cancelado')");
-                        });
+                    b.ToTable("Servicos");
                 });
 
             modelBuilder.Entity("Fioo.Entities.ServicoMaquinario", b =>
@@ -524,7 +488,7 @@ namespace Fioo.Migrations
                     b.HasOne("Fioo.Entities.Servico", "Servico")
                         .WithMany("Avaliacoes")
                         .HasForeignKey("ServicoId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Avaliado");
@@ -572,10 +536,10 @@ namespace Fioo.Migrations
                     b.Navigation("Denunciante");
                 });
 
-            modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
+            modelBuilder.Entity("Fioo.Entities.PasswordResetToken", b =>
                 {
                     b.HasOne("Fioo.Entities.Usuario", "Usuario")
-                        .WithMany("Portfolios")
+                        .WithMany()
                         .HasForeignKey("UsuarioId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -583,10 +547,10 @@ namespace Fioo.Migrations
                     b.Navigation("Usuario");
                 });
 
-            modelBuilder.Entity("Fioo.Entities.RecuperacaoSenha", b =>
+            modelBuilder.Entity("Fioo.Entities.Portfolio", b =>
                 {
                     b.HasOne("Fioo.Entities.Usuario", "Usuario")
-                        .WithMany()
+                        .WithMany("Portfolios")
                         .HasForeignKey("UsuarioId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

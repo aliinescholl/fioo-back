@@ -19,7 +19,7 @@ public class RecuperacaoSenhaTests(FiooApiFactory api)
     private const string NovaSenha = "NovaSenha@123";
 
     private Task<HttpResponseMessage> Solicitar(string email) =>
-        api.CreateClient().PostAsJsonAsync("/api/usuarios/recuperar-senha", new { email });
+        api.CreateClient().PostAsJsonAsync("/api/usuarios/esqueci-senha", new { email });
 
     private Task<HttpResponseMessage> Redefinir(string? token, string? novaSenha = NovaSenha) =>
         api.CreateClient().PostAsJsonAsync("/api/usuarios/redefinir-senha", new { token, novaSenha });
@@ -61,9 +61,9 @@ public class RecuperacaoSenhaTests(FiooApiFactory api)
         Assert.Contains(WebUtility.HtmlEncode($"http://localhost:3000/redefinir-senha?token={token}"), msg.Html);
 
         // No banco fica só o hash, com validade de 30 minutos
-        var registro = await api.NoBanco(db => db.RecuperacoesSenha.SingleAsync(r => r.UsuarioId == usuario.Id));
+        var registro = await api.NoBanco(db => db.PasswordResetTokens.SingleAsync(r => r.UsuarioId == usuario.Id));
         Assert.NotEqual(token, registro.TokenHash);
-        Assert.InRange((registro.DataExpiracao - registro.DataCriacao).TotalMinutes, 29.9, 30.1);
+        Assert.InRange((registro.ExpiraEm - registro.DataCriacao).TotalMinutes, 29.9, 30.1);
     }
 
     [Fact]
@@ -79,10 +79,20 @@ public class RecuperacaoSenhaTests(FiooApiFactory api)
     }
 
     [Fact]
-    public async Task Email_invalido_retorna_400()
+    public async Task Email_invalido_recebe_resposta_generica_sem_envio()
     {
         var resp = await Solicitar("nao-e-email");
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Empty(api.Emails.Para("nao-e-email"));
+    }
+
+    [Fact]
+    public async Task Rota_usada_pelo_frontend_tambem_responde()
+    {
+        var usuario = await api.CriarUsuario(UsuarioTipo.Costureiro);
+        var resp = await api.CreateClient().PostAsJsonAsync("/api/auth/esqueci-senha", new { email = usuario.Email });
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Single(api.Emails.Para(usuario.Email));
     }
 
     [Fact]
@@ -104,9 +114,9 @@ public class RecuperacaoSenhaTests(FiooApiFactory api)
     public async Task Token_expirado_ou_invalido_e_recusado()
     {
         var (usuario, token) = await SolicitarComSucesso();
-        await api.NoBanco(db => db.RecuperacoesSenha
+        await api.NoBanco(db => db.PasswordResetTokens
             .Where(r => r.UsuarioId == usuario.Id)
-            .ExecuteUpdateAsync(r => r.SetProperty(x => x.DataExpiracao, DateTime.UtcNow.AddMinutes(-1))));
+            .ExecuteUpdateAsync(r => r.SetProperty(x => x.ExpiraEm, DateTime.UtcNow.AddMinutes(-1))));
 
         Assert.Equal(HttpStatusCode.BadRequest, (await Redefinir(token)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await Redefinir("token-que-nao-existe")).StatusCode);
@@ -126,7 +136,7 @@ public class RecuperacaoSenhaTests(FiooApiFactory api)
     {
         var (usuario, primeiro) = await SolicitarComSucesso();
         // Libera o intervalo mínimo entre solicitações
-        await api.NoBanco(db => db.RecuperacoesSenha
+        await api.NoBanco(db => db.PasswordResetTokens
             .Where(r => r.UsuarioId == usuario.Id)
             .ExecuteUpdateAsync(r => r.SetProperty(x => x.DataCriacao, DateTime.UtcNow.AddMinutes(-5))));
 
