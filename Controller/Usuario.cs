@@ -3,10 +3,13 @@ using Fioo.Data;
 using Fioo.Entities;
 using Fioo.Enums;
 using Fioo.Services;
+using Fioo.Services.Email;
+using Fioo.Services.Email.Templates;
 using Fioo.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.IO;
@@ -25,7 +28,9 @@ public class UsuariosController : ControllerBase
     private readonly IConfiguration _appConfiguration;
     private readonly IWebHostEnvironment _webHostEnvironment;
     private readonly CnpjWsService _cnpjWsService;
-    private readonly EmailService _emailService;
+    private readonly IEmailService _emailService;
+    private readonly FrontendSettings _frontend;
+    private readonly ILogger<UsuariosController> _logger;
     private readonly FotoService _fotoService;
 
     // Upload rules
@@ -37,8 +42,10 @@ public class UsuariosController : ControllerBase
         IConfiguration configuration,
         IWebHostEnvironment env,
         CnpjWsService cnpjWsService,
-        EmailService emailService,
-        FotoService fotoService)
+        IEmailService emailService,
+        FotoService fotoService,
+        IOptions<FrontendSettings> frontend,
+        ILogger<UsuariosController> logger)
     {
         _dbContext = context;
         _appConfiguration = configuration;
@@ -46,6 +53,8 @@ public class UsuariosController : ControllerBase
         _cnpjWsService = cnpjWsService;
         _emailService = emailService;
         _fotoService = fotoService;
+        _frontend = frontend.Value;
+        _logger = logger;
     }
 
     [HttpPost]
@@ -205,6 +214,9 @@ public class UsuariosController : ControllerBase
         return Ok(exists);
     }
 
+    public const int ValidadeRecuperacaoMinutos = 30;
+    private static readonly TimeSpan IntervaloMinimoEntreSolicitacoes = TimeSpan.FromMinutes(1);
+
     [HttpPost("esqueci-senha")]
     [HttpPost("/api/auth/esqueci-senha")]
     [HttpPost("/auth/esqueci-senha")]
@@ -218,6 +230,13 @@ public class UsuariosController : ControllerBase
         var usuario = await _dbContext.Usuarios.FirstOrDefaultAsync(u => u.Email.ToLower() == dto.Email.ToLower().Trim());
         if (usuario != null && usuario.Ativo)
         {
+            // Evita disparos repetidos (e abuso do envio): no máximo um e-mail por minuto por conta
+            var ultimaSolicitacao = await _dbContext.PasswordResetTokens
+                .Where(t => t.UsuarioId == usuario.Id)
+                .MaxAsync(t => (DateTime?)t.DataCriacao);
+            if (ultimaSolicitacao.HasValue && DateTime.UtcNow - ultimaSolicitacao.Value < IntervaloMinimoEntreSolicitacoes)
+                return Ok(new { message = respostaPadrao });
+
             // Invalida tokens anteriores não usados
             var tokensAntigos = await _dbContext.PasswordResetTokens
                 .Where(t => t.UsuarioId == usuario.Id && t.UsadoEm == null)
@@ -237,37 +256,23 @@ public class UsuariosController : ControllerBase
             {
                 UsuarioId = usuario.Id,
                 TokenHash = tokenHash,
-                ExpiraEm = DateTime.UtcNow.AddMinutes(30),
+                ExpiraEm = DateTime.UtcNow.AddMinutes(ValidadeRecuperacaoMinutos),
                 DataCriacao = DateTime.UtcNow
             };
 
             _dbContext.PasswordResetTokens.Add(resetToken);
             await _dbContext.SaveChangesAsync();
 
-            var frontendUrl = _appConfiguration["FrontendUrl"] ?? "http://localhost:3000";
-            var link = $"{frontendUrl.TrimEnd('/')}/redefinir-senha?token={Uri.EscapeDataString(token)}";
-
-            var html = $@"
-                <div style=""font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"">
-                    <h2 style=""color: #333;"">Recuperação de Senha - Fioo</h2>
-                    <p>Olá, {(usuario.Nome ?? "usuário")}!</p>
-                    <p>Recebemos uma solicitação para redefinir a sua senha no Fioo.</p>
-                    <p>Clique no link abaixo para criar uma nova senha (este link expira em 30 minutos):</p>
-                    <p style=""text-align: center; margin: 30px 0;"">
-                        <a href=""{link}"" style=""background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;"">Redefinir Minha Senha</a>
-                    </p>
-                    <p>Ou copie e cole o link a seguir no seu navegador:</p>
-                    <p><a href=""{link}"">{link}</a></p>
-                    <p style=""color: #777; font-size: 12px; margin-top: 30px;"">Se você não solicitou a recuperação de senha, desconsidere este e-mail.</p>
-                </div>";
-
+            var conteudo = EmailTemplates.RecuperacaoSenha(usuario.Nome, _frontend.MontarLinkRedefinicao(token), ValidadeRecuperacaoMinutos);
             try
             {
-                await _emailService.EnviarAsync(usuario.Email, "Recuperação de Senha - Fioo", html);
+                await _emailService.EnviarAsync(usuario.Email, conteudo.Assunto, conteudo.Html, conteudo.Texto);
             }
-            catch
+            catch (Exception ex)
             {
-                // Não expõe detalhes de erro de SMTP para o cliente
+                // Não expõe detalhes de erro de SMTP para o cliente (nem revela que a conta existe)
+                _logger.LogError("Não foi possível enviar o e-mail de recuperação de senha do usuário {UsuarioId} ({Erro}).",
+                    usuario.Id, (ex as EmailEnvioException)?.Erro.ToString() ?? ex.GetType().Name);
             }
         }
 

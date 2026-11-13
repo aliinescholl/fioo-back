@@ -4,12 +4,14 @@ using Fioo.Data;
 using Fioo.Entities;
 using Fioo.Enums;
 using Fioo.Services;
+using Fioo.Services.Email;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
 using Xunit;
@@ -26,13 +28,11 @@ public class TestWebHostEnvironment : IWebHostEnvironment
     public string EnvironmentName { get; set; } = "Testing";
 }
 
-public class DummyEmailService : EmailService
+public class DummyEmailService : IEmailService
 {
     public List<(string Para, string Assunto, string Html)> EmailsEnviados { get; } = new();
 
-    public DummyEmailService(IConfiguration config) : base(config, NullLogger<EmailService>.Instance) { }
-
-    public override Task EnviarAsync(string para, string assunto, string html)
+    public Task EnviarAsync(string para, string assunto, string html, string? textoAlternativo = null, CancellationToken cancellationToken = default)
     {
         EmailsEnviados.Add((para, assunto, html));
         return Task.CompletedTask;
@@ -60,11 +60,12 @@ public class PasswordResetTests
         }).Build();
 
         var env = new TestWebHostEnvironment();
-        var emailService = new DummyEmailService(config);
+        var emailService = new DummyEmailService();
         var fotoService = new FotoService(env);
         var cnpjWs = new CnpjWsService(new HttpClient());
 
-        var controller = new UsuariosController(db, config, env, cnpjWs, emailService, fotoService);
+        var controller = new UsuariosController(db, config, env, cnpjWs, emailService, fotoService,
+            Options.Create(new FrontendSettings { BaseUrl = "http://localhost:3000" }), NullLogger<UsuariosController>.Instance);
         return (controller, db, emailService);
     }
 

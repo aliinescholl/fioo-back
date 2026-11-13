@@ -1,5 +1,6 @@
 using Fioo.Data;
 using Fioo.Services;
+using Fioo.Services.Email;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -44,8 +45,20 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // Serviços do sistema
 builder.Services.AddHttpClient<CnpjWsService>();
-builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<FotoService>();
+
+// E-mail (SMTP Gmail). A senha de aplicativo vem só da variável de ambiente EmailSettings__SmtpPassword.
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.Secao));
+builder.Services.PostConfigure<EmailSettings>(o =>
+{
+    // Compatibilidade com o nome usado antes (Email:SenhaApp / Email__SenhaApp)
+    if (string.IsNullOrWhiteSpace(o.SmtpPassword))
+        o.SmtpPassword = builder.Configuration["Email:SenhaApp"];
+});
+// Links enviados por e-mail usam a mesma FrontendUrl do CORS
+builder.Services.Configure<FrontendSettings>(o =>
+    o.BaseUrl = builder.Configuration["FrontendUrl"] ?? o.BaseUrl);
+builder.Services.AddTransient<IEmailService, SmtpEmailService>();
 
 // CORS para permitir o frontend Next.js
 builder.Services.AddCors(options =>
@@ -84,6 +97,13 @@ if (!string.IsNullOrEmpty(jwtKey))
 }
 
 var app = builder.Build();
+
+// Teste manual do SMTP: dotnet run -- --testar-email destinatario@exemplo.com (envia e encerra, sem subir a API)
+if (EmailTesteCli.FoiSolicitado(args))
+{
+    Environment.ExitCode = await EmailTesteCli.ExecutarAsync(app.Services, args);
+    return;
+}
 
 if (app.Environment.IsDevelopment())
 {

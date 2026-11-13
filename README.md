@@ -12,16 +12,20 @@ API backend em ASP.NET Core e Entity Framework Core para a plataforma Fioo.
 - .NET 10 SDK
 - PostgreSQL
 
-### Configuração de Secrets (Recuperação de Senha)
-Para envio de e-mails em desenvolvimento local, configure a senha de app do Gmail via User Secrets:
+### Envio de e-mails (SMTP Gmail)
+O Fioo envia e-mails como **Fioo <fioo.sistema@gmail.com>** por `smtp.gmail.com:587` (STARTTLS). As configurações não secretas estão na seção `EmailSettings` do `appsettings.json`.
 
+A senha de aplicativo do Google é configurada **somente** pela variável de ambiente:
 ```bash
-dotnet user-secrets set "Email:SenhaApp" "sua-senha-de-16-caracteres"
+EmailSettings__SmtpPassword=sua-senha-de-16-caracteres
 ```
+(O nome antigo `Email__SenhaApp` / `Email:SenhaApp` em User Secrets continua aceito.)
 
-No ambiente de hospedagem/produção, configure como variável de ambiente:
+Os links dos e-mails usam `FrontendUrl` (em produção, variável de ambiente `FrontendUrl`).
+
+Para testar o envio real sem passar pela recuperação de senha (não sobe a API nem expõe endpoint):
 ```bash
-Email__SenhaApp=sua-senha-de-16-caracteres
+EmailSettings__SmtpPassword=... dotnet run -- --testar-email destinatario@exemplo.com
 ```
 
 > **Atenção:** Nunca versione nem envie a senha de aplicativo para o repositório.
@@ -47,7 +51,7 @@ dotnet test
 ## 📌 Principais Endpoints Novos
 
 ### Recuperação de Senha
-- `POST /api/usuarios/esqueci-senha`: Envia e-mail com link contendo o token de uso único (expira em 30 min). Resposta genérica para evitar enumeração de usuários.
+- `POST /api/usuarios/esqueci-senha`: Envia e-mail (template HTML do Fioo) com link contendo o token de uso único (expira em 30 min). Resposta genérica para evitar enumeração de usuários; no máximo um envio por minuto por conta.
 - `POST /api/usuarios/redefinir-senha`: Valida o hash do token e altera a senha do usuário.
 
 ### Upload de Fotos

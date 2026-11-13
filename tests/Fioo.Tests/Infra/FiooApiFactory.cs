@@ -1,13 +1,16 @@
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using Fioo.Data;
 using Fioo.Entities;
 using Fioo.Enums;
+using Fioo.Services.Email;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 
@@ -27,6 +30,18 @@ public sealed class FiooApiFactory : WebApplicationFactory<Program>, IAsyncLifet
         .Build();
 
     private int _sequencia;
+
+    /// <summary>E-mails "enviados" pela API durante os testes (nenhum sai para a rede).</summary>
+    public EmailFake Emails { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IEmailService>();
+            services.AddSingleton<IEmailService>(Emails);
+        });
+    }
 
     public async Task InitializeAsync()
     {
