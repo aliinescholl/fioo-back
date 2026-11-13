@@ -230,6 +230,41 @@ namespace Fioo.Migrations
                     b.ToTable("Portfolios");
                 });
 
+            modelBuilder.Entity("Fioo.Entities.RecuperacaoSenha", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DataCriacao")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("DataExpiracao")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DataUso")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UsuarioId");
+
+                    b.ToTable("RecuperacoesSenha", (string)null);
+                });
+
             modelBuilder.Entity("Fioo.Entities.Servico", b =>
                 {
                     b.Property<int>("Id")
@@ -538,6 +573,17 @@ namespace Fioo.Migrations
                 {
                     b.HasOne("Fioo.Entities.Usuario", "Usuario")
                         .WithMany("Portfolios")
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Usuario");
+                });
+
+            modelBuilder.Entity("Fioo.Entities.RecuperacaoSenha", b =>
+                {
+                    b.HasOne("Fioo.Entities.Usuario", "Usuario")
+                        .WithMany()
                         .HasForeignKey("UsuarioId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

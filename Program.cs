@@ -1,5 +1,6 @@
 ﻿using Fioo.Data;
 using Fioo.Services;
+using Fioo.Services.Email;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -47,6 +48,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Serviço de consulta CNPJ via API pública cnpj.ws
 builder.Services.AddHttpClient<CnpjWsService>();
 
+// E-mail (SMTP Gmail). A senha de aplicativo vem só da variável de ambiente EmailSettings__SmtpPassword.
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.Secao));
+builder.Services.Configure<FrontendSettings>(builder.Configuration.GetSection(FrontendSettings.Secao));
+builder.Services.AddTransient<IEmailService, SmtpEmailService>();
+
 // JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (!string.IsNullOrEmpty(jwtKey))
@@ -71,6 +77,13 @@ if (!string.IsNullOrEmpty(jwtKey))
 }
 
 var app = builder.Build();
+
+// Teste manual do SMTP: dotnet run -- --testar-email destinatario@exemplo.com (envia e encerra, sem subir a API)
+if (EmailTesteCli.FoiSolicitado(args))
+{
+    Environment.ExitCode = await EmailTesteCli.ExecutarAsync(app.Services, args);
+    return;
+}
 
 if (app.Environment.IsDevelopment())
 {

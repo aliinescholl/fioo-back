@@ -40,6 +40,8 @@ A autorização é aplicada via atributo `[Authorize]` em controllers ou método
 - `POST /`: Cadastra um novo usuário (senha com PBKDF2 + salt).
 - `POST /login`: Autentica e retorna um token JWT. Hashes antigos (SHA-256) são migrados para PBKDF2 no login.
 - `POST /verificar-email`: Verifica se um email já está em uso.
+- `POST /recuperar-senha` `{ email }`: Gera um link de redefinição (token de uso único, válido por 30 minutos; só o hash fica no banco) e envia por e-mail. Resposta sempre genérica (não revela se o e-mail existe); no máximo um envio por minuto por conta; cada nova solicitação invalida o link anterior.
+- `POST /redefinir-senha` `{ token, novaSenha }`: Define a nova senha (mesma regra de senha forte do cadastro) e consome o token.
 - `GET /costureiros` e `GET /fornecedores` (Requer `[Authorize]`): tela Encontrar. Query: `busca`, `uf`, `cidade`, `avaliacaoMin` (1–5), `ordenacao` (`relevantes`, `avaliacao-alta`, `avaliacao-baixa`, `az`, `za`), `pagina`, `tamanhoPagina`. Retorna `{ itens, pagina, temMais }` com média e total de avaliações no papel.
 - `GET /{id}` (Requer `[Authorize]`): dados completos só do próprio usuário; para os demais, os dados públicos.
 - `GET /{id}/publico` (Requer `[Authorize]`): perfil público (sem e-mail, documento ou telefone).
@@ -100,6 +102,13 @@ Respostas de erro usam `{ field?, message }` em pt-BR (400, 403, 404, 409, 422).
 - `POST /`: Adiciona um item ao portfólio.
 - `PUT /{id}`: Atualiza um item do portfólio.
 - `DELETE /{id}`: Remove um item do portfólio.
+
+## 4.1 Envio de e-mails
+- Serviço `IEmailService` (`Services/Email`), implementado por `SmtpEmailService` com MailKit: `smtp.gmail.com:587`, STARTTLS, autenticação com senha de aplicativo do Google. Remetente: `Fioo <fioo.sistema@gmail.com>`.
+- Configuração não secreta na seção `EmailSettings` do `appsettings.json`. **A senha de aplicativo vem só da variável de ambiente `EmailSettings__SmtpPassword`** (nunca no código ou no appsettings).
+- Links enviados por e-mail usam a seção `Frontend` (`BaseUrl`, `RedefinirSenhaPath`); em produção defina `Frontend__BaseUrl`.
+- Templates HTML em `Services/Email/Templates/EmailTemplates.cs`.
+- Teste manual de envio real (sem endpoint HTTP): `EmailSettings__SmtpPassword=... dotnet run -- --testar-email destinatario@exemplo.com`.
 
 ## 5. Convenções de Código
 - **Nomenclatura**: PascalCase para classes, métodos e propriedades. camelCase para variáveis locais e parâmetros.
